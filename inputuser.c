@@ -1,0 +1,1 @@
+/* File che contiene tutte le funzioni utili per richiedere un input da tastiera */

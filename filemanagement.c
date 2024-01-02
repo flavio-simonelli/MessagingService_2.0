@@ -1,0 +1,1 @@
+/* Questo file contiene tutte le funzioni utili per scrivere sui file per archiviare i dati */

@@ -1,0 +1,1 @@
+/* Questo file contiene tutte le funzioni che servono per trasferire dati attraverso una socket fra server e client */
