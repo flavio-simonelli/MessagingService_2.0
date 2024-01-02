@@ -16,7 +16,7 @@ int main(int argc, char **argv){
     }
 
     if(initCrypto() != 0){
-        fprintf(stderr,"Errore nell'inizuializzazione della libreria crittografica\n");
+        fprintf(stderr,"Errore nell'inizializzazione della libreria crittografica\n");
         closeServer();
         exit(EXIT_FAILURE);
     }
