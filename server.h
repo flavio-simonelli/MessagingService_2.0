@@ -7,6 +7,8 @@
 #include <ctype.h>
 #include <sodium.h>
 
+#define CREDPATH "credentials.txt"
+
 int initSocket (char *ipAddress, char *portstring);
 
 int portValidate(const char *string);
