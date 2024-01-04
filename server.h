@@ -18,3 +18,5 @@ int ipValidate(const char *ipAddress);
 void closeServer();
 
 int initCrypto();
+
+int initCredential();

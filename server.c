@@ -21,6 +21,13 @@ int main(int argc, char **argv){
         exit(EXIT_FAILURE);
     }
 
+    if(initCredential() != 0){
+        fprintf(stderr,"Errore: impossibile inizializzare il file contenente le credenziali utente\n");
+        closeServer();
+        exit(EXIT_FAILURE);
+    }
+
+
     closeServer();
     return 0;
 }
@@ -30,7 +37,7 @@ void closeServer(){
     close(serverSocket);
 }
 
-/* funzione per l'inizializzazione della socket */
+/* funzione per l'inizializzazione della socket, la funzione crea la socket ma non la mette in ascolto */
 int initSocket (char *ipAddress, char *portstring){
     int functret; // intero utilizzato per controllare il valore di ritorno delle funzioni chiamate
     // controllo della porta
@@ -118,13 +125,16 @@ int initCrypto(){
     return 0;
 }
 
+/* La funzione inizializza il file credenziali, cioè fa una copia di quello precedentemente salvato e lo riscrive sull'originale mantenendo solo le righe valide (MAncano i Semafori)*/
 int initCredential(){
     // crea una copia del file credenziali
     //apertura file originale
     FILE *originalfile = fopen(CREDPATH,"r+"); //apertura del file in RDWR all'inizio
     if(originalfile == NULL){
-        fprintf(stderr,"Errore: non e' stato possibile aprire il file contenente le credenziali \n");
-        return 1;
+        //il file con le credenziali non esiste e lo crea
+        originalfile = fopen(CREDPATH,"w");
+        fclose(originalfile);
+        return 0;
     }
     //crea il duplicato
     char pathtemp[strlen(CREDPATH)+strlen("temp")+1];
@@ -133,12 +143,38 @@ int initCredential(){
     FILE *dupfile = fopen(pathtemp,"w+"); //come prima ma viene anche troncato
     if(originalfile == NULL){
         fprintf(stderr,"Errore: non e' stato possibile aprire il file duplicato delle credenziali \n");
+        fclose(originalfile);
         return 1;
     }
     int temp;
     while((temp = fgetc(originalfile)) != EOF){
         fputc(temp,dupfile);
     }
-    
+    // spostiamo il seek del dupfile all'inizio del file
+    fseek(dupfile, 0, SEEK_SET);
+    //chiudiamo il file orginale per riaprlirlo troncato
+    fclose(originalfile);
+    originalfile = fopen(CREDPATH,"w+");
+    if(originalfile == NULL){
+        fprintf(stderr,"Errore: non e' stato possibile aprire il file contenente le credenziali \n");
+        fclose(dupfile);
+        return 1;
+    }
     // riscrive nel file originale solo le credenziali valide
+    char buffer[500]; //da modificare perchè solo di prova --------------------------------------------------------------------------
+    // Leggi ogni riga dal file duplicato
+    while (fgets(buffer, sizeof(buffer), dupfile) != NULL) {
+        // Verifica il primo carattere
+        if (buffer[0] == '1') {
+            // Se il primo carattere è '1', copia la riga nel file originale
+            fputs(buffer, originalfile);
+        }
+        // Altrimenti, se è '0', la riga viene saltata
+    }
+
+    // Chiude entrambi i file
+    fclose(dupfile);
+    fclose(originalfile);
+
+    return 0;
 }
