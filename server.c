@@ -121,7 +121,7 @@ int initCrypto(){
 int initCredential(){
     // crea una copia del file credenziali
     //apertura file originale
-    FILE *originalfile = fopen(CREDPATH,"r+") //apertura del file in RDWR all'inizio
+    FILE *originalfile = fopen(CREDPATH,"r+"); //apertura del file in RDWR all'inizio
     if(originalfile == NULL){
         fprintf(stderr,"Errore: non e' stato possibile aprire il file contenente le credenziali \n");
         return 1;
@@ -130,7 +130,7 @@ int initCredential(){
     char pathtemp[strlen(CREDPATH)+strlen("temp")+1];
     strcpy(pathtemp,"temp");
     strcat(pathtemp,CREDPATH);
-    FILE *dupfile = fopen(pethtemp,"w+"); //come prima ma viene anche troncato
+    FILE *dupfile = fopen(pathtemp,"w+"); //come prima ma viene anche troncato
     if(originalfile == NULL){
         fprintf(stderr,"Errore: non e' stato possibile aprire il file duplicato delle credenziali \n");
         return 1;
