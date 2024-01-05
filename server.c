@@ -153,7 +153,7 @@ int initSocket (char *ipAddress, char *portstring){
     // controllo dell'indirizzo IP
     if((functret = ipValidate(ipAddress)) != 0){
         if(strcmp(ipAddress,"null") != 0){ // se l'utente ha inserito null verrà automaticamente inserito l'indirizzo della macchina dove si sta runnando il server
-            fprintf(stderr,"Errore, l'indirizzo IP non e' valido.\n");
+            fprintf(stderr,"Errore, l'indirizzo IP %s non e' valido.\n",ipAddress);
             return 1;
         }
     }

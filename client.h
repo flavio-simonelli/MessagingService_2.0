@@ -11,3 +11,10 @@
 #include <unistd.h>
 #include <sodium.h>
 #include <signal.h>
+
+int portValidate(const char *string);
+
+int ipValidate(const char *ipAddress) ;
+
+int initSocket(char* ipAddress, char* portstring);
+
