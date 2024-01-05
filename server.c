@@ -55,6 +55,7 @@ int main(int argc, char **argv){
             closeServer();
             exit(EXIT_FAILURE);
         }
+        printf("connesso un nuovo client! \n");
     }
     closeServer();
     return 0;

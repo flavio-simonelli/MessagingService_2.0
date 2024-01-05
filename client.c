@@ -1,5 +1,10 @@
 #include "client.h"
 
+//variabili glocbali per lo scambio di messaggi criptati con il server
+unsigned char client_pk[crypto_kx_PUBLICKEYBYTES], client_sk[crypto_kx_SECRETKEYBYTES];
+unsigned char client_rx[crypto_kx_SESSIONKEYBYTES], client_tx[crypto_kx_SESSIONKEYBYTES];
+unsigned char server_pk[crypto_kx_PUBLICKEYBYTES];
+
 int sock;
 
 int main(int argc, char** argv){
@@ -10,6 +15,11 @@ int main(int argc, char** argv){
 
     if(initSocket(argv[1],argv[2]) != 0){
         fprintf(stderr,"Errore: non è stata possibile inizializzare la connessione con il server\n");
+        exit(EXIT_FAILURE);
+    }
+
+    if(initCrypto() != 0){
+        fprintf(stderr,"Errore: impossibile inizializzare la libreria di crittografia \n");
         exit(EXIT_FAILURE);
     }
 
@@ -77,6 +87,34 @@ int initSocket(char* ipAddress, char* portstring){
 
     printf("Connessione con il Server stabilita! \n");
 
+    return 0;
+}
+
+// funzione che inizializza la libreria libsodium per la criptazione dei dati sulla sock
+int initCrypto(){
+    //inizializzazione della libreria sodium
+    if (sodium_init() < 0) {
+        perror("problemi inizializzazione libreria libsodium");
+        return 1;
+    }
+    // Generazione delle chiavi lato client
+    crypto_kx_keypair(client_pk, client_sk);
+    // Ricezione della chiave pubblica del server
+    if(receive_data(server_pk,crypto_kx_PUBLICKEYBYTES,sock)!=0){
+        printf("errore nella ricezione del server_pk \n");
+        return 1;
+    }
+    //Invio della chiave pubblica al server
+    if(send_data(client_pk,crypto_kx_PUBLICKEYBYTES,sock)!=0){
+        printf("errore nell'invio del client_pk \n");
+        return 1;
+    }
+    // creazione della sessione di criptazione
+    if (crypto_kx_client_session_keys(client_rx, client_tx,client_pk, client_sk, server_pk) != 0) {
+        printf("Errore chiave pubblica del server, riavviare l'applicazione \n");
+        return 1;
+    }
+    printf("la connessione ora è sicura\n");
     return 0;
 }
 
