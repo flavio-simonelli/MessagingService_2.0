@@ -10,6 +10,12 @@ int main(int argc, char **argv){
         exit(EXIT_FAILURE);
     }
 
+    //inizializzazione della gestione dei segnali
+    if(initSignal() != 0){
+        fprintf(stderr,"errore nell'inizializzazione dei segnali\n");
+        exit(EXIT_FAILURE);
+    }
+
     //inizializzazione della socket
     if(initSocket(argv[1], argv[2]) != 0){
         fprintf(stderr,"errore nell'inizializzazione della socket\n");
@@ -31,12 +37,11 @@ int main(int argc, char **argv){
     }
 
     //accettazione di nuove connessioni con i client attraverso threads separati
-    int clientSocket; // descrittore della connessione con il client
     while(1){
         //mettiamo la socket in stato di accettazione
-        struct sockaddr_in client_addr; // inizializziamo una struttura per l'indirizzo del client
+        struct sockaddr_in client_addr;
         socklen_t client_addr_len = sizeof(client_addr);
-        clientSocket = accept(serverSocket, (struct sockaddr*)&client_addr, &client_addr_len);
+        int clientSocket = accept(serverSocket, (struct sockaddr *)&client_addr, &client_addr_len);
         if (clientSocket < 0) {
             perror("Errore connessione alla socket");
             closeServer();
@@ -55,9 +60,49 @@ int main(int argc, char **argv){
     return 0;
 }
 
+void signalclose(){
+    closeServer();
+    printf("\n Il server e' stato chiuso correttamente\n");
+    exit(EXIT_SUCCESS);
+}
+
+int initSignal(){
+    sigset_t mask;
+    //inizializzazione della struttura per sigaction
+    struct sigaction sa;
+    sa.sa_handler = signalclose;
+    sa.sa_flags = SA_RESTART;
+
+    sigfillset(&mask); // aggiungiamo alla maschera tutti i segnali
+    sigdelset(&mask, SIGINT); // togliamo dalla maschera SIGINT
+    sigdelset(&mask, SIGPIPE); // togliamo dalla maschera SIGPIPE
+    sigdelset(&mask, SIGTERM); // togliamo il segnale SIGTERM per terminare il server
+
+    if(sigprocmask(SIG_SETMASK, &mask, NULL) != 0){
+        perror("Errore nell'impostare la maschera dei segnali");
+        return 1;
+    }
+
+    // configurazione sigaction per SIGTERM
+    if (sigaction(SIGTERM, &sa, NULL) == -1) {
+        perror("Errore durante la configurazione di SIGTERM");
+        return 1;
+    }
+    // Configura sigaction per SIGINT
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        perror("Errore durante la configurazione di SIGINT");
+        return 1;
+    }
+
+    return 0;
+    /* adesso SIGTERM E SIGINT fanno la stessa cosa mentre SIGPIPE è ignorato implicitamente quidni comportamnento di default */
+
+}
+
 //funzione main dei thread
 void *mainThread(void *clientSocket) {
     int socket = *((int *)clientSocket); //cast del descrittore della socket
+    close(socket);
     pthread_exit(NULL);
 }
 
@@ -139,6 +184,12 @@ int initSocket (char *ipAddress, char *portstring){
         return 1;
     }
 
+    if (listen(serverSocket, BACKLOG) < 0) { //BACKLOG numero massimo di connessioni in contemporanea sulla stessa socket
+        perror("Errore nella listen");
+        return 1;
+    }
+
+    printf("il server ascolta su IP = %s e porta = %d\n",inet_ntoa(serverAddr.sin_addr),ntohs(serverAddr.sin_port));
     return 0;
 }
 
