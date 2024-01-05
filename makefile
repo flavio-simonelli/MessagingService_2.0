@@ -5,10 +5,10 @@ CFLAGS = -Wall -Wextra -lpthread -lsodium
 all: server client
 
 server: server.c
-	$(CC) server.c -o server $(CFLAGS)
+	$(CC) server.c transfertsocket.c -o server $(CFLAGS)
 
 client: client.c
-	$(CC) client.c -o client $(CFLAGS)
+	$(CC) client.c transfertsocket.c -o client $(CFLAGS)
 
 .PHONY: clean
 clean:

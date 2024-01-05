@@ -6,6 +6,7 @@
 #include <ifaddrs.h>
 #include <ctype.h>
 #include <sodium.h>
+#include <pthread.h>
 
 #define CREDPATH "credentials.txt"
 
@@ -20,3 +21,6 @@ void closeServer();
 int initCrypto();
 
 int initCredential();
+
+//funzione main dei thread
+void *mainThread(void *clientSocket);

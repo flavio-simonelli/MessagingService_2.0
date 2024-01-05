@@ -6,35 +6,86 @@ int main(int argc, char **argv){
     // inseriamo 2 parametri: indirizzo ip e porta del server
     // controllo inserimento dei 2 parametri
     if(argc != 3){
-        fprintf(stderr,"Usare: %s [IP address] [port]\n",argv[0]);
+        fprintf(stderr,"Usare: %s [IP address] (if IP=null is the same of machine) [port]\n",argv[0]);
         exit(EXIT_FAILURE);
     }
 
+    //inizializzazione della socket
     if(initSocket(argv[1], argv[2]) != 0){
         fprintf(stderr,"errore nell'inizializzazione della socket\n");
         exit(EXIT_FAILURE);
     }
 
+    //inizializzazione della libreria di crypto
     if(initCrypto() != 0){
         fprintf(stderr,"Errore nell'inizializzazione della libreria crittografica\n");
         closeServer();
         exit(EXIT_FAILURE);
     }
 
+    // inizializzazione del file credenziali
     if(initCredential() != 0){
         fprintf(stderr,"Errore: impossibile inizializzare il file contenente le credenziali utente\n");
         closeServer();
         exit(EXIT_FAILURE);
     }
 
-
+    //accettazione di nuove connessioni con i client attraverso threads separati
+    int clientSocket; // descrittore della connessione con il client
+    while(1){
+        //mettiamo la socket in stato di accettazione
+        struct sockaddr_in client_addr; // inizializziamo una struttura per l'indirizzo del client
+        socklen_t client_addr_len = sizeof(client_addr);
+        clientSocket = accept(serverSocket, (struct sockaddr*)&client_addr, &client_addr_len);
+        if (clientSocket < 0) {
+            perror("Errore connessione alla socket");
+            closeServer();
+            exit(EXIT_FAILURE);
+        }
+        //creiamo un thread per ogni nuova connessione in ingresso
+        pthread_t thread;
+        if(pthread_create(&thread,NULL,mainThread,(void *)&clientSocket) != 0){
+            perror("Errore creazione nuovo thread");
+            close(clientSocket);
+            closeServer();
+            exit(EXIT_FAILURE);
+        }
+    }
     closeServer();
     return 0;
+}
+
+//funzione main dei thread
+void *mainThread(void *clientSocket) {
+    int socket = *((int *)clientSocket); //cast del descrittore della socket
+    pthread_exit(NULL);
 }
 
 /* Questa funzione serve a chiudere correttamente tutte le componenti del server*/
 void closeServer(){
     close(serverSocket);
+}
+
+//la funzione serve per scambiare le chiavi crittografiche fra il client e il thread associato
+int key_exchange(unsigned char* server_pk, unsigned char* server_sk, unsigned char* server_rx, unsigned char* server_tx, unsigned char* client_pk, int socket){
+    // Genera le chiavi del server privata e pubblica
+    crypto_kx_keypair(server_pk, server_sk);
+    // Invia la chiave pubblica del server al client
+    if(send_data(server_pk,crypto_kx_PUBLICKEYBYTES,socket) != 0){
+        printf("errore nell'invio del server_pk \n");
+        return 1;
+    }
+    // Riceve la chiave pubblica del client al server
+    if(receive_data(client_pk,crypto_kx_PUBLICKEYBYTES,socket) != 0){
+        printf("errore nella ricezione del client_pk \n");
+        return 1;
+    }
+    // Calcola una coppia di chiavi per criptazione e decriptazione dei dati
+    if (crypto_kx_server_session_keys(server_rx, server_tx, server_pk, server_sk, client_pk) != 0) {
+        printf("Errore nel creare la coppia di chiavi per ricezione e invio \n");
+        return 1;
+    }
+    return 0;
 }
 
 /* funzione per l'inizializzazione della socket, la funzione crea la socket ma non la mette in ascolto */
