@@ -18,6 +18,7 @@
 #define BACKLOG 10
 #define TABLE_SIZE 1000 //numero di esempio
 #define MAX_ID 20
+#define MAX_PSWD 20
 
 #define fflush(stdin) while(getchar() != '\n')
 
@@ -64,3 +65,6 @@ Utente* searchInHashTable(HashTable* table, const char* username);
 
 // Rimuove un elemento dalla tabella hash
 void removeFromHashTable(HashTable* table, const char* username);
+
+// funzione per scambiare le chiavi fra thread server e client
+int key_exchange(unsigned char* server_pk, unsigned char* server_sk, unsigned char* server_rx, unsigned char* server_tx, unsigned char* client_pk, int socket);

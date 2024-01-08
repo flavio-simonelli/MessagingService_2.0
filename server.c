@@ -104,6 +104,17 @@ int initSignal(){
 //funzione main dei thread
 void *mainThread(void *clientSocket) {
     int socket = *((int *)clientSocket); //cast del descrittore della socket
+    char user[MAX_ID]; //buffer che identifica il thread per un determinato user loggato lato client
+    // stringhe per la criptazione della socket con il client
+    unsigned char server_pk[crypto_kx_PUBLICKEYBYTES], server_sk[crypto_kx_SECRETKEYBYTES];
+    unsigned char server_rx[crypto_kx_SESSIONKEYBYTES], server_tx[crypto_kx_SESSIONKEYBYTES];
+    unsigned char client_pk[crypto_kx_PUBLICKEYBYTES];
+    // scambio di chiavi per la criptazione dei dati
+    if(key_exchange(server_pk, server_sk, server_rx, server_tx, client_pk, socket) != 0){
+        printf("non è stato possibile stabilire una connessione sicura");
+        close(socket);
+        pthread_exit(NULL);
+    }
     close(socket);
     pthread_exit(NULL);
 }
@@ -227,7 +238,6 @@ int initCrypto(){
         return 1;
     }
 
-    // qui mettiamo la parte di scambio delle chiavi anche per il server ----------------------------------------
     return 0;
 }
 
@@ -354,3 +364,64 @@ Utente* searchInHashTable(HashTable* table, const char* username) {
     return NULL; // Elemento non trovato
 }
 
+// questa funzione autentica l'utente, lo registra o lo elimina in base a quello che ha selezionato
+int authClient(int socket, const unsigned char *rx_key, const unsigned char *tx_key, int op){
+    Utente user;
+    int risposta = 1;
+    char username[MAX_ID];
+    // ricezione di username
+    while(risposta != 0){
+        if(receive_encrypted_data(socket, username, MAX_ID, rx_key) != 0) {
+            fprintf(stderr,"Errore: impossibile ricevere username dal client\n");
+            return 1;
+        }
+        if(op == 1){
+            //registrazione utente
+            strcpy(user.username,username);
+            risposta = 0;
+        } else {
+            user = searchInHashTable(tableUser,username);
+            if(user != NULL){
+                risposta = 0;
+            }
+        }
+        if(send_encrypted_int(socket,risposta,tx_key) != 0){
+            fprintf(stderr,"Errore: impossibile inviare la risposta al client\n");
+            return 1;
+        }
+    }
+    risposta = 1;
+    char password[MAX_PSWD]; // stringa temporanea per la password inviata dal cliente
+    char hashed_password[ENC_PSWD]; // stringa che contiene la password cifrata 
+    // Blocca la memoria riservata alla password in chiaro
+    if (sodium_mlock(password, sizeof(password)) != 0) {
+        fprintf(stderr, "Impossibile bloccare la memoria riservata alla password\n");
+        return 1;
+    }
+    // ricezione della password
+    while(risposta != 0){
+        if(receive_encrypted_data(socket, password, MAX_PSWD, rx_key) != 0) {
+            fprintf(stderr,"Errore: impossibile ricevere pasword dal client\n");
+            return 1;
+        }
+        // Cifra la password in chiaro
+        if (crypto_pwhash_str(hashed_password, password, strlen(password), crypto_pwhash_OPSLIMIT_SENSITIVE, crypto_pwhash_MEMLIMIT_SENSITIVE) != 0) {
+            perror("error to hash password ");
+            return 1;
+        }
+        if(op == 1){
+            // registrazione utente
+            // scrittura sul file di credenziali
+            // inserimento nel table hash
+            risposta = 0;
+        } else {
+            // controllo della password usando il seek all'interno di user
+        }
+        if(send_encrypted_int(socket,risposta,tx_key) != 0){
+            fprintf(stderr,"Errore: impossibile inviare la risposta al client\n");
+            return 1;
+        }
+    }
+
+    return 0;
+}
