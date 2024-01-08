@@ -11,3 +11,13 @@
 #include <unistd.h>
 #include <sodium.h>
 #include <signal.h>
+
+#include "transfertsocket.h"
+
+int portValidate(const char *string);
+
+int ipValidate(const char *ipAddress) ;
+
+int initSocket(char* ipAddress, char* portstring); // questa fuznione è da cambiare per windows
+
+int initCrypto();

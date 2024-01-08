@@ -6,35 +6,132 @@ int main(int argc, char **argv){
     // inseriamo 2 parametri: indirizzo ip e porta del server
     // controllo inserimento dei 2 parametri
     if(argc != 3){
-        fprintf(stderr,"Usare: %s [IP address] [port]\n",argv[0]);
+        fprintf(stderr,"Usare: %s [IP address] (if IP=null is the same of machine) [port]\n",argv[0]);
         exit(EXIT_FAILURE);
     }
 
+    //inizializzazione della gestione dei segnali
+    if(initSignal() != 0){
+        fprintf(stderr,"errore nell'inizializzazione dei segnali\n");
+        exit(EXIT_FAILURE);
+    }
+
+    //inizializzazione della socket
     if(initSocket(argv[1], argv[2]) != 0){
         fprintf(stderr,"errore nell'inizializzazione della socket\n");
         exit(EXIT_FAILURE);
     }
 
+    //inizializzazione della libreria di crypto
     if(initCrypto() != 0){
         fprintf(stderr,"Errore nell'inizializzazione della libreria crittografica\n");
         closeServer();
         exit(EXIT_FAILURE);
     }
 
+    // inizializzazione del file credenziali
     if(initCredential() != 0){
         fprintf(stderr,"Errore: impossibile inizializzare il file contenente le credenziali utente\n");
         closeServer();
         exit(EXIT_FAILURE);
     }
 
-
+    //accettazione di nuove connessioni con i client attraverso threads separati
+    while(1){
+        //mettiamo la socket in stato di accettazione
+        struct sockaddr_in client_addr;
+        socklen_t client_addr_len = sizeof(client_addr);
+        int clientSocket = accept(serverSocket, (struct sockaddr *)&client_addr, &client_addr_len);
+        if (clientSocket < 0) {
+            perror("Errore connessione alla socket");
+            closeServer();
+            exit(EXIT_FAILURE);
+        }
+        //creiamo un thread per ogni nuova connessione in ingresso
+        pthread_t thread;
+        if(pthread_create(&thread,NULL,mainThread,(void *)&clientSocket) != 0){
+            perror("Errore creazione nuovo thread");
+            close(clientSocket);
+            closeServer();
+            exit(EXIT_FAILURE);
+        }
+        printf("connesso un nuovo client! \n");
+    }
     closeServer();
     return 0;
+}
+
+void signalclose(){
+    closeServer();
+    printf("\n Il server e' stato chiuso correttamente\n");
+    exit(EXIT_SUCCESS);
+}
+
+int initSignal(){
+    sigset_t mask;
+    //inizializzazione della struttura per sigaction
+    struct sigaction sa;
+    sa.sa_handler = signalclose;
+    sa.sa_flags = SA_RESTART;
+
+    sigfillset(&mask); // aggiungiamo alla maschera tutti i segnali
+    sigdelset(&mask, SIGINT); // togliamo dalla maschera SIGINT
+    sigdelset(&mask, SIGPIPE); // togliamo dalla maschera SIGPIPE
+    sigdelset(&mask, SIGTERM); // togliamo il segnale SIGTERM per terminare il server
+
+    if(sigprocmask(SIG_SETMASK, &mask, NULL) != 0){
+        perror("Errore nell'impostare la maschera dei segnali");
+        return 1;
+    }
+
+    // configurazione sigaction per SIGTERM
+    if (sigaction(SIGTERM, &sa, NULL) == -1) {
+        perror("Errore durante la configurazione di SIGTERM");
+        return 1;
+    }
+    // Configura sigaction per SIGINT
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        perror("Errore durante la configurazione di SIGINT");
+        return 1;
+    }
+
+    return 0;
+    /* adesso SIGTERM E SIGINT fanno la stessa cosa mentre SIGPIPE è ignorato implicitamente quidni comportamnento di default */
+
+}
+
+//funzione main dei thread
+void *mainThread(void *clientSocket) {
+    int socket = *((int *)clientSocket); //cast del descrittore della socket
+    close(socket);
+    pthread_exit(NULL);
 }
 
 /* Questa funzione serve a chiudere correttamente tutte le componenti del server*/
 void closeServer(){
     close(serverSocket);
+}
+
+//la funzione serve per scambiare le chiavi crittografiche fra il client e il thread associato
+int key_exchange(unsigned char* server_pk, unsigned char* server_sk, unsigned char* server_rx, unsigned char* server_tx, unsigned char* client_pk, int socket){
+    // Genera le chiavi del server privata e pubblica
+    crypto_kx_keypair(server_pk, server_sk);
+    // Invia la chiave pubblica del server al client
+    if(send_data(server_pk,crypto_kx_PUBLICKEYBYTES,socket) != 0){
+        printf("errore nell'invio del server_pk \n");
+        return 1;
+    }
+    // Riceve la chiave pubblica del client al server
+    if(receive_data(client_pk,crypto_kx_PUBLICKEYBYTES,socket) != 0){
+        printf("errore nella ricezione del client_pk \n");
+        return 1;
+    }
+    // Calcola una coppia di chiavi per criptazione e decriptazione dei dati
+    if (crypto_kx_server_session_keys(server_rx, server_tx, server_pk, server_sk, client_pk) != 0) {
+        printf("Errore nel creare la coppia di chiavi per ricezione e invio \n");
+        return 1;
+    }
+    return 0;
 }
 
 /* funzione per l'inizializzazione della socket, la funzione crea la socket ma non la mette in ascolto */
@@ -57,7 +154,7 @@ int initSocket (char *ipAddress, char *portstring){
     // controllo dell'indirizzo IP
     if((functret = ipValidate(ipAddress)) != 0){
         if(strcmp(ipAddress,"null") != 0){ // se l'utente ha inserito null verrà automaticamente inserito l'indirizzo della macchina dove si sta runnando il server
-            fprintf(stderr,"Errore, l'indirizzo IP non e' valido.\n");
+            fprintf(stderr,"Errore, l'indirizzo IP %s non e' valido.\n",ipAddress);
             return 1;
         }
     }
@@ -88,6 +185,12 @@ int initSocket (char *ipAddress, char *portstring){
         return 1;
     }
 
+    if (listen(serverSocket, BACKLOG) < 0) { //BACKLOG numero massimo di connessioni in contemporanea sulla stessa socket
+        perror("Errore nella listen");
+        return 1;
+    }
+
+    printf("il server ascolta su IP = %s e porta = %d\n",inet_ntoa(serverAddr.sin_addr),ntohs(serverAddr.sin_port));
     return 0;
 }
 
