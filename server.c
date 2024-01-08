@@ -1,6 +1,7 @@
 #include "server.h"
 
 int serverSocket; // descrittore della socket lato server
+HashTable* tableUser;
 
 int main(int argc, char **argv){
     // inseriamo 2 parametri: indirizzo ip e porta del server
@@ -225,11 +226,15 @@ int initCrypto(){
         perror("problemi inizializzazione libreria libsodium");
         return 1;
     }
+
+    // qui mettiamo la parte di scambio delle chiavi anche per il server ----------------------------------------
     return 0;
 }
 
 /* La funzione inizializza il file credenziali, cioè fa una copia di quello precedentemente salvato e lo riscrive sull'originale mantenendo solo le righe valide (MAncano i Semafori)*/
 int initCredential(){
+    // creazione della struttura dati per contenere gli username e i seek dell'utente
+    tableUser = initializeHashTable();
     // crea una copia del file credenziali
     //apertura file originale
     FILE *originalfile = fopen(CREDPATH,"r+"); //apertura del file in RDWR all'inizio
@@ -264,13 +269,26 @@ int initCredential(){
         return 1;
     }
     // riscrive nel file originale solo le credenziali valide
+    Utente user;
     char buffer[500]; //da modificare perchè solo di prova --------------------------------------------------------------------------
     // Leggi ogni riga dal file duplicato
     while (fgets(buffer, sizeof(buffer), dupfile) != NULL) {
         // Verifica il primo carattere
-        if (buffer[0] == '1') {
-            // Se il primo carattere è '1', copia la riga nel file originale
+        if (buffer[0] == '1') { // Se il primo carattere è '1'
+            // Prendi il seek del file nel punto in cui è scritto l'utente
+            user.pos = ftell(originalfile);
+            // copia la riga nel file originale
             fputs(buffer, originalfile);
+            // prendi l'username dalla stringa appena letta
+            if(sscanf(buffer,"%s[^ ]",user.username) != 1){
+                fprintf(stderr,"Errore: impossibile leggere username");
+                return 1;
+            }
+            //inserisci l'utente nella tabella hash
+            if(insertIntoHashTable(tableUser,user) != 0){
+                fprintf(stderr,"Errore: impossibile inserire elemento nella tabella hash");
+                return 1;
+            }
         }
         // Altrimenti, se è '0', la riga viene saltata
     }
@@ -281,3 +299,58 @@ int initCredential(){
 
     return 0;
 }
+
+// Funzione hash basata sull'username per l'indicizzazione delle strutture utenti
+// funzione di esempio (se avessi utilizzato semplicemente le lettere dell'alfabeto sarei stato bloccato a 21 liste)
+unsigned int hashFunction(const char* username) {
+    unsigned int hash = 0;
+    for (int i = 0; username[i] != '\0'; i++) {
+        hash = hash * 31 + username[i];
+    }
+    return hash % TABLE_SIZE;
+}
+
+// Inizializza la tabella hash
+HashTable* initializeHashTable() {
+    HashTable* table = (HashTable*)malloc(TABLE_SIZE * sizeof(HashTable));
+    for (int i = 0; i < TABLE_SIZE; i++) {
+        // per correttezza inizializziamo a null tutti i puntatori alle teste delle liste
+        table[i].head = NULL;
+    }
+    return table;
+}
+
+// Inserisce un elemento nella tabella hash
+int insertIntoHashTable(HashTable* table, Utente data) {
+    //creazione di un nuovo nodo utente
+    Utente *newUser = malloc(sizeof(Utente));
+    if(newUser == NULL){
+        perror("Errore malloc creazione nuono utente");
+        return 1;
+    }
+    //copia dei dati
+    strcpy(newUser->username,data.username);
+    newUser->pos=data.pos;
+    //troviamo in quale lista deve essere inserito
+    unsigned int index = hashFunction(newUser->username);
+    // inserimento in testa alla lista
+    newUser->next = table[index].head;
+    table[index].head = newUser;
+    return 0;
+}
+
+// Cerca un elemento nella tabella hash [DA MODIFICARE]
+Utente* searchInHashTable(HashTable* table, const char* username) {
+    unsigned int index = hashFunction(username);
+    Utente* current = table[index].head;
+
+    while (current != NULL) {
+        if (strcmp(current->username, username) == 0) {
+            return current;
+        }
+        current = current->next;
+    }
+
+    return NULL; // Elemento non trovato
+}
+

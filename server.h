@@ -16,6 +16,8 @@
 
 #define CREDPATH "credentials.txt"
 #define BACKLOG 10
+#define TABLE_SIZE 1000 //numero di esempio
+#define MAX_ID 20
 
 #define fflush(stdin) while(getchar() != '\n')
 
@@ -37,3 +39,28 @@ void *mainThread(void *clientSocket);
 int initSignal();
 
 void signalclose();
+
+typedef struct {
+    char username[MAX_ID];
+    long pos;
+    struct Utente* next;
+} Utente;
+
+typedef struct {
+    struct Utente* head;
+} HashTable;
+
+// Funzione hash basata sull'username
+unsigned int hashFunction(const char* username);
+
+// Inizializza la tabella hash
+HashTable* initializeHashTable();
+
+// Inserisce un elemento nella tabella hash
+int insertIntoHashTable(HashTable* table, Utente data);
+
+// Cerca un elemento nella tabella hash
+Utente* searchInHashTable(HashTable* table, const char* username);
+
+// Rimuove un elemento dalla tabella hash
+void removeFromHashTable(HashTable* table, const char* username);
