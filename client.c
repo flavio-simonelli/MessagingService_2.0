@@ -146,3 +146,52 @@ int ipValidate(const char *ipAddress) {
     }
     return 0;
 }
+
+
+// parte funzionante della socket in windows
+/*
+#include <winsock2.h>
+#include <stdio.h>
+#include <WS2tcpip.h>
+
+#pragma comment(lib, "ws2_32.lib")
+
+int main() {
+    WSADATA wsaData;
+    SOCKET Socket;
+    SOCKADDR_IN SockAddr;
+    int errorCode;
+
+    errorCode = WSAStartup(MAKEWORD(2, 2), &wsaData);
+    if (errorCode != 0) {
+        printf("Errore nella inizializzazione di Winsock: %d\n", errorCode);
+        return 1;
+    }
+
+    Socket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (Socket == INVALID_SOCKET) {
+        printf("Errore nella creazione del socket: %d\n", WSAGetLastError());
+        WSACleanup();
+        return 1;
+    }
+
+    SockAddr.sin_port = htons(8080);
+    SockAddr.sin_family = AF_INET;
+    InetPtonA(AF_INET, "127.0.0.1", &(SockAddr.sin_addr.s_addr));
+
+    errorCode = connect(Socket, (SOCKADDR*)(&SockAddr), sizeof(SockAddr));
+    if (errorCode == SOCKET_ERROR) {
+        printf("Errore nella connessione al server: %d\n", WSAGetLastError());
+        closesocket(Socket);
+        WSACleanup();
+        return 1;
+    }
+
+    printf("Connesso al server!\n");
+
+    closesocket(Socket);
+    WSACleanup();
+
+    return 0;
+}
+*/
