@@ -20,6 +20,8 @@
 #define MAX_ID 20
 #define MAX_PSWD 20
 #define ENC_PSWD crypto_pwhash_STRBYTES
+#define MAX_OBJECT 20
+#define MAX_TEXT 200
 
 #define fflush(stdin) while(getchar() != '\n')
 
@@ -51,6 +53,13 @@ typedef struct Utente{
 typedef struct {
     Utente* head;
 } HashTable;
+
+typedef struct {
+    char dest[MAX_ID];
+    char ogetto[MAX_OBJECT];
+    char text[MAX_TEXT];
+} Messaggio;
+
 
 // Funzione hash basata sull'username
 unsigned int hashFunction(const char* username);
