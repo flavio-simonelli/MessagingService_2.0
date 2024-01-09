@@ -116,15 +116,109 @@ void *mainThread(void *clientSocket) {
         pthread_exit(NULL);
     }
     //ricezione operazione di autenticazione
-    int operation;
-    if(receive_encrypted_int(socket,&operation,1,server_rx) != 0){
+    int op;
+    if(receive_encrypted_int(socket,&op,1,server_rx) != 0){
         fprintf(stderr,"Errore impossibile ricevere operazione di autenticazione dal client\n");
         close(socket);
         pthread_exit(NULL);
     }
-    printf("operazione richiestra %d \n",operation);
+    // autenticazione del client
+    if(authentication_client(user,op,server_rx,server_tx,socket)!=0){
+        printf("errore nell'autenticazione del client \n");
+        close(socket);
+        pthread_exit(NULL);
+    }
     close(socket);
     pthread_exit(NULL);
+}
+
+// La funzione gestisce le autenticazioni dei client (registrandoli o controllando le credenziali)
+int authentication_client(char* user, int op, unsigned char* server_rx,unsigned char* server_tx,int socket){
+    Utente* utente; //puntatore ad un nodo utente
+    // ricezione dell'username
+    char username[MAX_ID]; //puntatore al buffer contenente l'username inviato dall'utente
+    int instr_server = -1; // risposta del server al client (-1 stato default)
+    while( instr_server != 0){
+        // riceve la stringa username scritta dall'utente
+        if(receive_encrypted_data(socket,(unsigned char*)username,MAX_ID,server_rx) != 0){
+            printf("errore ricezione username dal client \n");
+            return 1;
+        }
+        //cerchiamo all'interno della lista se esiste un utente con quell'username
+        if((utente = searchInHashTable(tableUser,username)) != NULL){
+            if(op != 1){
+                //l'utente vuole loggarsi
+                instr_server = 0; // confermiamo l'esistenza dell'utente
+                strcpy(user,username); //inserisco l'username all'interno del buffer che identifica l'utente nel thread
+            } else {
+                //l'utente vuole registrarsi
+                instr_server = 1; //username gia esistente
+            }
+        } else {
+            if(op == 1){
+                //l'utente vuole registrarsi
+                instr_server = 0; // confermiamo username valido
+                strcpy(user,username); //inserisco l'username all'interno del buffer che identifica l'utente nel thread
+                //allochiamo memoria per un nuovo utente
+                utente = (Utente*)malloc(sizeof(Utente));
+                if(utente == NULL){
+                    perror("errore nella malloc per la creazione di un nuovo utente");
+                    return 1;
+                }
+                strcpy(utente->username,username);
+            } else{
+                //l'utente vuole loggarsi
+                instr_server = 2; // username insesistente
+            }
+        }
+        // invio risultato della ricerca al client
+        send_encrypted_int(socket,instr_server,server_tx);
+    }
+    //ricezione della password
+    char password[MAX_PSWD]; // stringa temporanea per la password inviata dal cliente
+    char hashed_password[ENC_PSWD]; // stringa che contiene la password cifrata
+    instr_server = -1; // riportiamo l' "instruzione lato server" allo stato di default
+    // Blocca la memoria riservata alla password in chiaro
+    if (sodium_mlock(password, sizeof(password)) != 0) {
+        fprintf(stderr, "Impossibile bloccare la memoria riservata alla password\n");
+        return 1;
+    }
+    while(instr_server != 0){
+        // riceve la password in chiaro inviata dall'utente
+        if(receive_encrypted_data(socket,(unsigned char*)password,MAX_PSWD,server_rx)!=0){
+            printf("errore nella ricezione della password in chiaro dal server \n");\
+            return 1;
+        }
+        // Cifra la password in chiaro
+        if (crypto_pwhash_str(hashed_password, password, strlen(password), crypto_pwhash_OPSLIMIT_SENSITIVE, crypto_pwhash_MEMLIMIT_SENSITIVE) != 0) {
+            perror("error to hash password ");
+            return 1;
+        }
+        if(op == 1){
+            //l'utente vuole registrarsi
+            // inseriamo l'utente nel file credentials //-------------------------------------------------------------
+            //scriviamo il seek
+            if(insertIntoHashTable(tableUser,*utente) != 0){
+                printf("errore nell'aggiunta del nuovo utente");
+                return 1;
+            }
+        } else {
+            //l'utente vuole loggarsi o eliminare l'account
+            //prendiamo la password dal file
+            /*
+            if ( crypto_pwhash_str_verify(utente->password, password, strlen(password)) != 0) {
+                // Password sbagliata
+                instr_server = 1; // messaggio al client "password errata" 
+            } else {
+                instr_server = 0; //messaggio al client "password corretta"
+            }*/
+        }
+        //sblocco la memoria riservata alla password in chiaro
+        sodium_munlock(password, sizeof(password));
+        // Invia risultato al client
+        send_encrypted_int(socket,instr_server,server_tx);
+    }
+    return 0;
 }
 
 /* Questa funzione serve a chiudere correttamente tutte le componenti del server*/
