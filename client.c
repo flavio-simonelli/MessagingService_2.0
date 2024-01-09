@@ -8,6 +8,7 @@ unsigned char server_pk[crypto_kx_PUBLICKEYBYTES];
 int sock;
 
 int main(int argc, char** argv){
+    char user[MAX_ID]; // stringa che indica l'utente loggato
     if(argc != 3){
         fprintf(stderr,"Errore: usare ./client [IP Server] (null usa quello della macchina) [Porta]\n");
         exit(EXIT_FAILURE);
@@ -24,7 +25,106 @@ int main(int argc, char** argv){
     }
 
     //richiesta operazione da eseguire
-    
+    int op;
+    char *option[] = {"accesso", "registrazione", "eliminazione account"};
+    if( operationrequire(&op,option,3) != 0){ //funzione che chiede all'utente di scegliere un'opzione fra quelle elencate
+        printf("errore nella richiesta di un'operazione pre autenticazione \n");
+        close(sock);
+        exit(EXIT_FAILURE);
+    }
+    //invio operazione da eseguire al server
+    if( send_encrypted_int(sock,op,client_tx) != 0){
+        printf("errore invio operazioen pre autenticazione \n");
+        close(sock);
+        exit(EXIT_FAILURE);
+    }
+
+    //fase di autenticazione
+    //invio delle credenziali al server
+    if(authentication(user) !=0){
+        printf("errore durante la registrazione \n");
+        close(sock);
+        exit(EXIT_FAILURE);
+    }
+    if(op==0){
+        printf("Accesso avvenuto con successo! \nBentornato %s! \n", user);
+    } else if( op == 1){
+        printf("Registrazione avvenuta con successo! \nBenvenuto %s! \n",user);
+    } else{
+        printf("Eliminazione dell'account avvenuta correttamente! \nArrivederci %s! \n",user);
+        close(sock);
+        exit(EXIT_SUCCESS);
+    }
+
+    return 0;
+}
+
+int authentication(char* user){ // ricordati che nel server il mutex deve essere preso prima del controllo nella liosta degli utenti perchè così evito che nello stesso momento si registrano con lo stesso nome
+    //richiesta di un nome utente
+    char* username; // buffer temporaneo per username inserito dall'utente
+    int validate = -1; // "instruzione lato server" operatore che comunica lo stato del server al client
+    do{
+        //Allocazione temporanea di memoria per l'username
+        if((username = (char*)malloc(MAX_ID * sizeof(char))) == NULL){
+            perror("error to malloc for username");
+            exit(EXIT_FAILURE);
+        }
+        //richiesta dell'username
+        if(stringrequire(username,MAX_ID,"username",4)!=0){
+            printf("errore nella richiesta del'username \n");
+            return 1;
+        }
+        //invio dell'username al server
+        if(send_encrypted_data(sock,(const unsigned char *)username,MAX_ID,client_tx)!=0){
+            printf("errore nell'invio dell'username al server \n");
+            return 1;
+        }
+        // attesa della risposta da parte del server
+        if(receive_encrypted_int(sock,&validate,1,client_rx) !=0){
+            printf("errore nella ricezione della rispodta del client \n");
+        }
+        if(validate == 0){ //il server  conferma la ricezione dell'username
+            strcpy(user,username); // copiamo l'username nel buffer definitivo
+            printf("username accettato! \n");
+        } else if(validate == 1){ // errore in caso di registrazione 
+            printf("username già in uso! per favore inseriscine uno diverso\n");
+        } else if(validate == 2){ // errore in caso di accesso o eliminazione dell'account
+            printf("username inesistente! per favore inseriscine uno corretto\n");
+        }
+        //liberiamo memoria allocata dinamicamente
+        free(username);
+    }while(validate!=0);
+
+    //richiesta password utente
+    char *password; // buffer temporaneo per la password in chiaro
+    validate = -1; // reset al valore di default della risposta lato server
+    do{
+        // allocazione di memoria per la password in chiaro
+        if((password = (char*)malloc(MAX_PSWD * sizeof(char))) == NULL){
+            perror("error to malloc for password");
+            exit(EXIT_FAILURE);
+        }
+
+        //richiesta password
+        if(stringrequire(password,MAX_PSWD,"password",8) != 0){
+            printf("errore nella richiesta della password \n");
+            return 1;
+        }
+
+        // invio della password in chiaro
+        if(send_encrypted_data(sock,(const unsigned char*)password,MAX_PSWD,client_tx)!=0){
+            printf("errore nell'invio della password verso il server \n");
+            return 1;
+        }
+        // attesa della risposta da parte del server
+        if(receive_encrypted_int(sock,&validate,1,client_rx) !=0){
+            printf("errore nella ricezione della rispodta del client \n");
+        }
+        if(validate == 1){ // password errata in caso di accesso o eliminazione dall'account
+            printf("password errata, per favore inserisci la password corretta \n");
+        }
+        free(password); // deallochiamo memoria per password in chiaro
+    }while(validate != 0);
 
     return 0;
 }

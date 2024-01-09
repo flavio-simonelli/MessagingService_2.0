@@ -13,6 +13,10 @@
 #include <signal.h>
 
 #include "transfertsocket.h"
+#include "inputuser.h"
+
+#define MAX_ID 20
+#define MAX_PSWD 20
 
 int portValidate(const char *string);
 
@@ -21,3 +25,5 @@ int ipValidate(const char *ipAddress) ;
 int initSocket(char* ipAddress, char* portstring); // questa fuznione è da cambiare per windows
 
 int initCrypto();
+
+int authentication(char* user);

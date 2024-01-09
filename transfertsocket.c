@@ -108,7 +108,7 @@ int receive_encrypted_data(int socket, unsigned char *received_data, size_t max_
 
 int receive_encrypted_int(int socket, int* num, size_t sizenum, const unsigned char *rx_key) {
     // Ricevi l'intero cifrato
-    unsigned char buffer[sizenum];
+    unsigned char buffer[sizenum+1]; //numero di caratteri necessario più il terminatore della stringa
     if(receive_encrypted_data(socket, buffer, sizeof(buffer), rx_key) != 0){
         fprintf(stderr,"Errore nella ricezione dell'intero criptato \n");
         return 1;

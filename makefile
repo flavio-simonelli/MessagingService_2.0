@@ -8,7 +8,7 @@ server: server.c
 	$(CC) server.c transfertsocket.c -o server $(CFLAGS)
 
 client: client.c
-	$(CC) client.c transfertsocket.c -o client $(CFLAGS)
+	$(CC) client.c transfertsocket.c inputuser.c -o client $(CFLAGS)
 
 .PHONY: clean
 clean:

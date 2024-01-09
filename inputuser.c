@@ -1,7 +1,8 @@
 /* File che contiene tutte le funzioni utili per richiedere un input da tastiera */
+#include "inputuser.h"
 
 // ricchiesta di una operazione cablata nel software
-int operationrequire(int16_t* num,char** options, int numopt){
+int operationrequire(int* num,char** options, int numopt){
     // contiamo il numero di cifre possibili che l'utente può scrivere nel terminale
     int counter = 0; //counter delle cifre posizionali scrivibili
     int size = numopt;
@@ -53,8 +54,8 @@ int operationrequire(int16_t* num,char** options, int numopt){
     return 0; //return del numero scelto
 }
 
-// Funzione per richiedere una stringa da input utente (Parametri: buffer per l'input, size buffer, stringa oggetto richiesto)
-int stringrequire(char* string, size_t size, char* ogetto){ // string deve essere MAX_ID e MAX_PSWD e di conseguenza anche size
+// Funzione per richiedere una stringa da input utente (Parametri: buffer per l'input, size buffer, stringa oggetto richiesto, min caratteri)
+int stringrequire(char* string, size_t size, char* ogetto, int minchar){ // string deve essere MAX_ID e MAX_PSWD e di conseguenza anche size
     // buffer temporaneo per allocazione della stringa di input
     char * temp;
     bool c; // operatore per uscire dal ciclo do while
@@ -66,7 +67,7 @@ int stringrequire(char* string, size_t size, char* ogetto){ // string deve esser
             return 1;
         }
         // richiesta di input
-        printf("inserisci %s (max %ld caratteri): \t",ogetto,size-1); // -1 perchè un char è per il terminatore di stringa
+        printf("inserisci %s (max %ld caratteri, min %d caratteri): \t",ogetto,size-1,minchar); // -1 perchè un char è per il terminatore di stringa
 
         c = true; // impostiamo di default l'operatore per uscire dal ciclo
 
@@ -77,7 +78,7 @@ int stringrequire(char* string, size_t size, char* ogetto){ // string deve esser
             c = false; 
             fflush(stdin);
         }
-        if(strlen(temp) < MIN_CHAR+1) { //+1 perchè c'è il carattere \n
+        if(strlen(temp) < (size_t)(minchar+1)) { //+1 perchè c'è il carattere \n
             printf("troppo corta! \n");
             c = false;
         }
@@ -126,11 +127,11 @@ int intrequire(int16_t *num, int max, char *oggetto) {
             printf("Non hai scritto nulla\n");
             validate = 1;
         } else {
-            if ((strlen(buffer) == counter + 1) && buffer[strlen(buffer) - 1] != '\n') {
+            if ((strlen(buffer) == (size_t)(counter + 1)) && buffer[strlen(buffer) - 1] != '\n') {
                 printf("Hai scritto troppi caratteri\n");
                 validate = 1;
             } else {
-                if ((strlen(buffer) == counter + 1) && buffer[strlen(buffer) - 1] == '\n') {
+                if ((strlen(buffer) == (size_t)(counter + 1)) && buffer[strlen(buffer) - 1] == '\n') {
                     buffer[strlen(buffer) - 1] = '\0';
                 }
                 *num = strtol(buffer, &endptr, 10);

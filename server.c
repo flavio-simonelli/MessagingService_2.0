@@ -115,6 +115,14 @@ void *mainThread(void *clientSocket) {
         close(socket);
         pthread_exit(NULL);
     }
+    //ricezione operazione di autenticazione
+    int operation;
+    if(receive_encrypted_int(socket,&operation,1,server_rx) != 0){
+        fprintf(stderr,"Errore impossibile ricevere operazione di autenticazione dal client\n");
+        close(socket);
+        pthread_exit(NULL);
+    }
+    printf("operazione richiestra %d \n",operation);
     close(socket);
     pthread_exit(NULL);
 }
@@ -366,18 +374,18 @@ Utente* searchInHashTable(HashTable* table, const char* username) {
 
 // questa funzione autentica l'utente, lo registra o lo elimina in base a quello che ha selezionato
 int authClient(int socket, const unsigned char *rx_key, const unsigned char *tx_key, int op){
-    Utente user;
+    Utente* user;
     int risposta = 1;
     char username[MAX_ID];
     // ricezione di username
     while(risposta != 0){
-        if(receive_encrypted_data(socket, username, MAX_ID, rx_key) != 0) {
+        if(receive_encrypted_data(socket, (unsigned char*)username, MAX_ID, rx_key) != 0) {
             fprintf(stderr,"Errore: impossibile ricevere username dal client\n");
             return 1;
         }
         if(op == 1){
             //registrazione utente
-            strcpy(user.username,username);
+            strcpy(user->username,username);
             risposta = 0;
         } else {
             user = searchInHashTable(tableUser,username);
@@ -400,7 +408,7 @@ int authClient(int socket, const unsigned char *rx_key, const unsigned char *tx_
     }
     // ricezione della password
     while(risposta != 0){
-        if(receive_encrypted_data(socket, password, MAX_PSWD, rx_key) != 0) {
+        if(receive_encrypted_data(socket, (unsigned char*)password, MAX_PSWD, rx_key) != 0) {
             fprintf(stderr,"Errore: impossibile ricevere pasword dal client\n");
             return 1;
         }

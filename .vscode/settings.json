@@ -1,5 +1,6 @@
 {
     "files.associations": {
-        "transfertsocket.h": "c"
+        "transfertsocket.h": "c",
+        "inputuser.h": "c"
     }
 }

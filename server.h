@@ -19,6 +19,7 @@
 #define TABLE_SIZE 1000 //numero di esempio
 #define MAX_ID 20
 #define MAX_PSWD 20
+#define ENC_PSWD crypto_pwhash_STRBYTES
 
 #define fflush(stdin) while(getchar() != '\n')
 
@@ -41,14 +42,14 @@ int initSignal();
 
 void signalclose();
 
-typedef struct {
+typedef struct Utente{
     char username[MAX_ID];
     long pos;
     struct Utente* next;
 } Utente;
 
 typedef struct {
-    struct Utente* head;
+    Utente* head;
 } HashTable;
 
 // Funzione hash basata sull'username
