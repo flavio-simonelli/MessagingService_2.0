@@ -447,13 +447,22 @@ int authentication_client(char* user, int op, unsigned char* server_rx,unsigned 
                 instr_server = 0; //messaggio al client "password corretta"
             }
         }
+
+        //eliminiamo l'account se abbiamo selezionato questa opzione
+        if(op == 2){
+            if(deleteUser(*utente) != 0){
+                fprintf(stderr,"Errore impossibile eliminare l'account \n");
+                return 1;
+            }
+        }
         // Invia risultato al client
         send_encrypted_int(socket,instr_server,server_tx);
     }
+
     
     //sblocco la memoria riservata alla password in chiaro
     sodium_munlock(password, sizeof(password));
-    
+
     return 0;
 }
 
@@ -579,9 +588,83 @@ Utente* searchInHashTable(HashTable* table, const char* username) {
     return NULL; // Elemento non trovato
 }
 
+// Funzione che rimuove un elemento dalla tabella hash
+int removeFromHashTable(HashTable* table, const char* username) {
+    unsigned int index = hashFunction(username);
+    Utente* current = table[index].head;
+    Utente* prev = NULL;
+
+    //blocco del mutex per la lista
+    if(pthread_mutex_lock(&(table[index].mutex)) != 0){
+        perror("Errore: imposibile acquisire il mutex per eliminare il nodo dalla lista");
+        return 1;
+    }
+
+    while (current != NULL) {
+        if (strcmp(current->username, username) == 0) {
+            if (prev == NULL) {
+                // Il nodo da rimuovere è il primo nella lista
+                table[index].head = current->next;
+            } else {
+                // Il nodo da rimuovere non è il primo nella lista
+                prev->next = current->next;
+            }
+            
+            // sblocco il mutex
+            if(pthread_mutex_unlock(&(table[index].mutex)) != 0){
+                perror("Errore: impossibile restituire il mutex per eliminare il nodo dalla lista");
+                return 1;
+            }
+
+            free(current); // Libera la memoria della struttura Utente
+            return 0;
+        }
+        prev = current;
+        current = current->next;
+    }
+
+    return 1;
+}
 
 
 
 
-//int remUser(Utente user){   
-//}
+int deleteUser(Utente user){   
+    //apriamo il file in scrittura
+    FILE* file = fopen(CREDPATH,"r+");
+    if(file == NULL){
+        fprintf(stderr,"Errore impossibile aprire il file credenziali\n");
+        return 1;
+    }
+    //spostiamo il seek
+    if(fseek(file,user.pos,SEEK_SET) != 0){
+        perror("Errore posizionamento nel file durante l'eliminazione");
+        fclose(file);
+        return 1;
+    }
+    //blocchiamo la scrittura sul file
+    if(pthread_mutex_lock(&writecredential) != 0){
+        perror("Errore: imposibile acquisire il mutex per scrivere sul file credenziali");
+        fclose(file);
+        return 1;
+    }
+    //mettiamo ad 1 il bit validate
+    if(fprintf(file,"0") < 0){
+        fprintf(stderr,"Errore nella scrittura sul file credenziali\n");
+        return 1;
+    }
+    //rilasciamo la scrittura sul file
+    if(pthread_mutex_unlock(&writecredential) != 0){
+        perror("Errore: imposibile rilasciare il mutex per scrivere sul file credenziali");
+        fclose(file);
+        return 1;
+    }
+    //eliminiamo il nodo dalla tabella hash
+    if(removeFromHashTable(tableUser,user.username) != 0){
+        fprintf(stderr,"Errore impossibile rimuovere il nodo dalla tabella hash\n");
+        return 1;
+    }
+
+    return 0;
+
+}

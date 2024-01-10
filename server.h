@@ -73,8 +73,6 @@ void closeServer();
 
 // FUNZIONI DEI THREADS
 
-void *mainThread(void *clientSocket);
-
 int key_exchange(unsigned char* server_pk, unsigned char* server_sk, unsigned char* server_rx, unsigned char* server_tx, unsigned char* client_pk, int socket);
 //parte struttura dati utenti (hashtable)
 unsigned int hashFunction(const char* username);
@@ -82,9 +80,15 @@ unsigned int hashFunction(const char* username);
 int insertIntoHashTable(HashTable* table, Utente data);
 
 Utente* searchInHashTable(HashTable* table, const char* username);
+
+int removeFromHashTable(HashTable* table, const char* username);
 //parte autenticazione
 int authentication_client(char* user, int op, unsigned char* server_rx,unsigned char* server_tx,int socket);
 
 char* PswdSaved(Utente user);
 
 int regUser(Utente user, char* hashpassword);
+
+int deleteUser(Utente user);
+
+void *mainThread(void *clientSocket);
