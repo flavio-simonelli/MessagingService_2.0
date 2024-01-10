@@ -37,6 +37,7 @@ typedef struct Utente{
 
 typedef struct {
     Utente* head;
+    pthread_mutex_t mutex;
 } HashTable;
 
 typedef struct {

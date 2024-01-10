@@ -72,6 +72,11 @@ void signalclose(){
     exit(EXIT_SUCCESS);
 }
 
+/* Questa funzione serve a chiudere correttamente tutte le componenti del server*/
+void closeServer(){
+    close(serverSocket);
+}
+
 /* funzione che inizializza la maschera dei segnali da gestire */
 int initSignal(){
     sigset_t mask;
@@ -213,6 +218,10 @@ int initCredential(){
     }
     // creazione della struttura dati per contenere gli username e i seek dell'utente
     tableUser = initializeHashTable();
+    if(tableUser == NULL){
+        fprintf(stderr,"Errore, impossibile creare la hash table\n");
+        return 1;
+    }
     //apertura file originale
     FILE *originalfile = fopen(CREDPATH,"r+"); //apertura del file in RDWR all'inizio
     if(originalfile == NULL){
@@ -281,6 +290,11 @@ HashTable* initializeHashTable() {
     for (int i = 0; i < TABLE_SIZE; i++) {
         // per correttezza inizializziamo a null tutti i puntatori alle teste delle liste
         table[i].head = NULL;
+        //inizializziamo il muetx per la scrittura sulla lista
+        if(pthread_mutex_init(&(table[i].mutex),NULL) != 0){
+            perror("Errore nell'inizializzazione dei mutex nella tabella hash");
+            return NULL;
+        }
     }
     return table;
 }
@@ -322,6 +336,30 @@ void *mainThread(void *clientSocket) {
     pthread_exit(NULL);
 }
 
+
+//la funzione serve per scambiare le chiavi crittografiche fra il client e il thread associato
+int key_exchange(unsigned char* server_pk, unsigned char* server_sk, unsigned char* server_rx, unsigned char* server_tx, unsigned char* client_pk, int socket){
+    // Genera le chiavi del server privata e pubblica
+    crypto_kx_keypair(server_pk, server_sk);
+    // Invia la chiave pubblica del server al client
+    if(send_data(server_pk,crypto_kx_PUBLICKEYBYTES,socket) != 0){
+        printf("errore nell'invio del server_pk \n");
+        return 1;
+    }
+    // Riceve la chiave pubblica del client al server
+    if(receive_data(client_pk,crypto_kx_PUBLICKEYBYTES,socket) != 0){
+        printf("errore nella ricezione del client_pk \n");
+        return 1;
+    }
+    // Calcola una coppia di chiavi per criptazione e decriptazione dei dati
+    if (crypto_kx_server_session_keys(server_rx, server_tx, server_pk, server_sk, client_pk) != 0) {
+        printf("Errore nel creare la coppia di chiavi per ricezione e invio \n");
+        return 1;
+    }
+    return 0;
+}
+
+
 // La funzione gestisce le autenticazioni dei client (registrandoli o controllando le credenziali)
 int authentication_client(char* user, int op, unsigned char* server_rx,unsigned char* server_tx,int socket){
     Utente* utente; //puntatore ad un nodo utente
@@ -334,6 +372,7 @@ int authentication_client(char* user, int op, unsigned char* server_rx,unsigned 
             printf("errore ricezione username dal client \n");
             return 1;
         }
+        printf("username: %s\n",username);
         //cerchiamo all'interno della lista se esiste un utente con quell'username
         if((utente = searchInHashTable(tableUser,username)) != NULL){
             if(op != 1){
@@ -364,6 +403,7 @@ int authentication_client(char* user, int op, unsigned char* server_rx,unsigned 
         // invio risultato della ricerca al client
         send_encrypted_int(socket,instr_server,server_tx);
     }
+    printf("username salvato: %s \n",utente->username);
     //ricezione della password
     char* pswdsaved;
     if(op != 1){
@@ -384,13 +424,14 @@ int authentication_client(char* user, int op, unsigned char* server_rx,unsigned 
             printf("errore nella ricezione della password in chiaro dal server \n");\
             return 1;
         }
-        // Cifra la password in chiaro
-        if (crypto_pwhash_str(hashed_password, password, strlen(password), crypto_pwhash_OPSLIMIT_SENSITIVE, crypto_pwhash_MEMLIMIT_SENSITIVE) != 0) {
-            perror("error to hash password ");
-            return 1;
-        }
+        printf("password ricevuta: %s \n",password);
         if(op == 1){
             //l'utente vuole registrarsi
+            // Cifra la password in chiaro
+            if (crypto_pwhash_str(hashed_password, password, strlen(password), crypto_pwhash_OPSLIMIT_SENSITIVE, crypto_pwhash_MEMLIMIT_SENSITIVE) != 0) {
+                perror("error to hash password ");
+                return 1;
+            }
             if( regUser(*utente, hashed_password) != 0){
                 fprintf(stderr,"Errore: impossibile registrare il nuovo utente\n");
                 return 1;
@@ -399,96 +440,21 @@ int authentication_client(char* user, int op, unsigned char* server_rx,unsigned 
         } else {
             //l'utente vuole loggarsi o eliminare l'account
             
-            if ( crypto_pwhash_str_verify(pswdsaved, hashed_password, strlen(hashed_password)) != 0) {
+            if ( crypto_pwhash_str_verify(pswdsaved, password, strlen(password)) != 0) {
                 // Password sbagliata
                 instr_server = 1; // messaggio al client "password errata" 
             } else {
                 instr_server = 0; //messaggio al client "password corretta"
             }
         }
-        //sblocco la memoria riservata alla password in chiaro
-        sodium_munlock(password, sizeof(password));
         // Invia risultato al client
         send_encrypted_int(socket,instr_server,server_tx);
     }
+    
+    //sblocco la memoria riservata alla password in chiaro
+    sodium_munlock(password, sizeof(password));
+    
     return 0;
-}
-
-/* Questa funzione serve a chiudere correttamente tutte le componenti del server*/
-void closeServer(){
-    close(serverSocket);
-}
-
-//la funzione serve per scambiare le chiavi crittografiche fra il client e il thread associato
-int key_exchange(unsigned char* server_pk, unsigned char* server_sk, unsigned char* server_rx, unsigned char* server_tx, unsigned char* client_pk, int socket){
-    // Genera le chiavi del server privata e pubblica
-    crypto_kx_keypair(server_pk, server_sk);
-    // Invia la chiave pubblica del server al client
-    if(send_data(server_pk,crypto_kx_PUBLICKEYBYTES,socket) != 0){
-        printf("errore nell'invio del server_pk \n");
-        return 1;
-    }
-    // Riceve la chiave pubblica del client al server
-    if(receive_data(client_pk,crypto_kx_PUBLICKEYBYTES,socket) != 0){
-        printf("errore nella ricezione del client_pk \n");
-        return 1;
-    }
-    // Calcola una coppia di chiavi per criptazione e decriptazione dei dati
-    if (crypto_kx_server_session_keys(server_rx, server_tx, server_pk, server_sk, client_pk) != 0) {
-        printf("Errore nel creare la coppia di chiavi per ricezione e invio \n");
-        return 1;
-    }
-    return 0;
-}
-
-
-
-
-
-
-
-// Funzione hash basata sull'username per l'indicizzazione delle strutture utenti
-// funzione di esempio (se avessi utilizzato semplicemente le lettere dell'alfabeto sarei stato bloccato a 21 liste)
-unsigned int hashFunction(const char* username) {
-    unsigned int hash = 0;
-    for (int i = 0; username[i] != '\0'; i++) {
-        hash = hash * 31 + username[i];
-    }
-    return hash % TABLE_SIZE;
-}
-
-// Inserisce un elemento nella tabella hash
-int insertIntoHashTable(HashTable* table, Utente data) {
-    //creazione di un nuovo nodo utente
-    Utente *newUser = malloc(sizeof(Utente));
-    if(newUser == NULL){
-        perror("Errore malloc creazione nuono utente");
-        return 1;
-    }
-    //copia dei dati
-    strcpy(newUser->username,data.username);
-    newUser->pos=data.pos;
-    //troviamo in quale lista deve essere inserito
-    unsigned int index = hashFunction(newUser->username);
-    // inserimento in testa alla lista
-    newUser->next = table[index].head;
-    table[index].head = newUser;
-    return 0;
-}
-
-// Cerca un elemento nella tabella hash [DA MODIFICARE]
-Utente* searchInHashTable(HashTable* table, const char* username) {
-    unsigned int index = hashFunction(username);
-    Utente* current = table[index].head;
-
-    while (current != NULL) {
-        if (strcmp(current->username, username) == 0) {
-            return current;
-        }
-        current = current->next;
-    }
-
-    return NULL; // Elemento non trovato
 }
 
 // funzione per registrare l'utente nel file credenziali e nella struttra dati scelta
@@ -499,16 +465,31 @@ int regUser(Utente user, char* hashpassword){
         fprintf(stderr,"Impossibile aprire il file credenziali\n");
         return 1;
     }
+    // prendiamo il mutex per scrivere sul file
+    if(pthread_mutex_lock(&writecredential) != 0){
+        perror("Errore: imposibile acquisire il mutex per scrivere sul file credenziali");
+        fclose(file);
+        return 1;
+    }
     // inseriamo seek nel nuovo nodo
     user.pos = ftell(file);
     // scriviamo il nuovo utente sul file
     fprintf(file,"%d %s %s\n",1,user.username,hashpassword);
+
+    //rilasciamo il mutex per il file 
+    if(pthread_mutex_unlock(&writecredential) != 0){
+        perror("Errore: imposibile rilasciare il mutex per scrivere sul file credenziali");
+        fclose(file);
+        return 1;
+    }
     // inseriamo il nuovo nodo nella tabella
     if(insertIntoHashTable(tableUser,user) != 0){
         fprintf(stderr,"Errore: impossibile inserire il nuovo utente nella tabella hash\n");
         fclose(file);
         return 1;
     }
+
+    fclose(file);
     return 0;
 }
 
@@ -540,6 +521,67 @@ char* PswdSaved(Utente user){
     fclose(file);
     return password;
 }
+
+
+
+// Funzione hash basata sull'username per l'indicizzazione delle strutture utenti
+// funzione di esempio (se avessi utilizzato semplicemente le lettere dell'alfabeto sarei stato bloccato a 21 liste)
+unsigned int hashFunction(const char* username) {
+    unsigned int hash = 0;
+    for (int i = 0; username[i] != '\0'; i++) {
+        hash = hash * 31 + username[i];
+    }
+    return hash % TABLE_SIZE;
+}
+
+// Inserisce un elemento nella tabella hash
+int insertIntoHashTable(HashTable* table, Utente data) {
+    //creazione di un nuovo nodo utente
+    Utente *newUser = malloc(sizeof(Utente));
+    if(newUser == NULL){
+        perror("Errore malloc creazione nuono utente");
+        return 1;
+    }
+    //copia dei dati
+    strcpy(newUser->username,data.username);
+    newUser->pos=data.pos;
+    //troviamo in quale lista deve essere inserito
+    unsigned int index = hashFunction(newUser->username);
+    //blocchiamo il mutex per la lista
+    if(pthread_mutex_lock(&(table[index].mutex)) != 0){
+        perror("Errore impossibile bloccare il mutex per scrivere nella lista");
+        return 1;
+    }
+    // inserimento in testa alla lista
+    newUser->next = table[index].head;
+    table[index].head = newUser;
+    //sblocchiamo il mutex
+    if(pthread_mutex_unlock(&(table[index].mutex)) != 0){
+        perror("Errore impossibile sbloccare il mutex per scrivere nella lista");
+        return 1;
+    }
+
+    return 0;
+}
+
+// Cerca un elemento nella tabella hash [DA MODIFICARE]
+Utente* searchInHashTable(HashTable* table, const char* username) {
+    unsigned int index = hashFunction(username);
+    Utente* current = table[index].head;
+
+    while (current != NULL) {
+        if (strcmp(current->username, username) == 0) {
+            return current;
+        }
+        current = current->next;
+    }
+
+    return NULL; // Elemento non trovato
+}
+
+
+
+
 
 //int remUser(Utente user){   
 //}
