@@ -235,7 +235,7 @@ int initCredential(){
     strcpy(pathtemp,"temp");
     strcat(pathtemp,CREDPATH);
     FILE *dupfile = fopen(pathtemp,"w+"); //come prima ma viene anche troncato
-    if(originalfile == NULL){
+    if(dupfile == NULL){
         fprintf(stderr,"Errore: non e' stato possibile aprire il file duplicato delle credenziali \n");
         fclose(originalfile);
         return 1;
@@ -281,6 +281,12 @@ int initCredential(){
     // Chiude entrambi i file
     fclose(dupfile);
     fclose(originalfile);
+
+    //per sicurezza viene eliminato il file temporaneo
+    if(remove(pathtemp) != 0){
+        perror("Errore, impossibile eliminare il file temporaneo");
+        return 1;
+    }
     return 0;
 }
 
