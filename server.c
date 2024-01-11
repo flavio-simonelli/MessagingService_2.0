@@ -3,6 +3,8 @@
 int serverSocket; // descrittore della socket lato server
 HashTable* tableUser;
 pthread_mutex_t writecredential;
+// Lista delle chat
+Listachats chatlist;
 
 
 int main(int argc, char **argv){
@@ -289,6 +291,135 @@ int initCredential(){
     }
     return 0;
 }
+
+// Funzione per inizializzare la struttura leggendo i file nella cartella
+int inizializzaChatFiles(FileChat** listaChat) {
+    //inizializziamo la lista chat
+    &chatlist = malloc(sizeof(Listachats));
+    if(&chatlist == NULL){
+        perror("Errore impossibile inizializzare la lista delle chat");
+        return 1;
+    }
+    chatlist.head = NULL;
+    if(pthread_mutex_init(&(chatlist.add)) != 0){
+        perror("Impossibile inizializzare mutex lista chat");
+        return 1;
+    }
+    DIR* dir;
+    struct dirent* entry;
+
+    // Verifica se la directory "Chats" esiste, altrimenti creala
+    if (mkdir(CHAT_FOLDER, 0777) == -1 && errno != EEXIST) {
+        perror("Errore nella creazione della directory delle chat");
+        return 1;
+    }
+
+    // Apri la directory delle chat
+    dir = opendir(CHAT_FOLDER);
+    if (dir == NULL) {
+        perror("Errore nell'apertura della directory delle chat");
+        return 1;
+    }
+
+    // Leggi ogni file nella directory
+    while ((entry = readdir(dir)) != NULL) {
+        if (entry->d_type == DT_REG) {
+            // Costruisci il nome del file
+            char nomeFile[strlen(entry->d_name) + 1];
+            strcpy(nomeFile, entry->d_name);
+
+            // Crea e aggiungi la nuova chat alla lista
+            addChat(nomeFile);
+        }
+    }
+
+    // Chiudi la directory
+    closedir(dir);
+
+    return 0;
+}
+
+// Funzione per aggiungere una nuova chat alla lista
+int addChat(const char* nomeChat) {
+    // Alloca memoria per la nuova chat
+    FileChat* newChat = malloc(sizeof(FileChat));
+    // Verifica se l'allocazione di memoria è avvenuta con successo
+    if (newChat == NULL) {
+        perror("Errore nell'allocazione di memoria per la nuova chat");
+        return -1;  // Indica un errore
+    }
+    // Costruisci il nome del file
+    sprintf(newChat->chat, "%s/%s", CHAT_FOLDER, nomeChat);
+    // Inizializza il mutex della nuova chat
+    if (pthread_mutex_init(&newChat->write, NULL) != 0) {
+        perror("Errore nell'inizializzazione del mutex per la nuova chat");
+        free(newChat);  // Libera la memoria allocata
+        return -1;  // Indica un errore
+    }
+    // Imposta il puntatore al prossimo elemento a NULL
+    newChat->next = NULL;
+    // Aggiungi la nuova chat alla lista
+    //blocchiamo il mutex scrittura nella lista
+    if(pthread_mutex_lock(&(chatlist.add)) != 0){
+        perror("Errore impossibile bloccare mutex add chatlist");
+        return 1;
+    }
+    //aggiungiamo il nodo alla fine della lista
+    if(chatlist.head == NULL){
+        chatlist.head = newChat;
+    } else {
+        FileChat* temp = chatlist.head;
+        while(temp->next != NULL) {
+            temp = temp->next;
+        }
+        temp->next = newChat;
+    }
+    return 0;  // Indica il successo
+}
+
+// Funzione per trovare una chat nella lista dato il nome del file
+FileChat* findChat(const char* nomeChat) {
+    FileChat* current = chatlist.head;
+    // Cerca la chat nella lista
+    while (current != NULL) {
+        if (strcmp(current->chat, nomeChat) == 0) {
+            // La chat è stata trovata: restituisci un puntatore alla struttura
+            return current;
+        }
+        current = current->next;
+    }
+    // La chat non è stata trovata
+    return NULL;
+}
+
+
+// Funzione per rimuovere una chat dalla lista e deallocare la memoria
+int rimuoviChat(const char* nomeChat) {
+    FileChat* prev = NULL;
+    FileChat* current = chatlist.head;
+    // Cerca la chat nella lista
+    while (current != NULL) {
+        if (strcmp(current->chat, nomeChat) == 0) {
+            // Trovato: rimuovi la chat dalla lista
+            if (prev != NULL) {
+                prev->next = current->next;
+            } else {
+                *listaChat = current->next;
+            }
+            // Chiudi e distruggi il mutex
+            pthread_mutex_destroy(&current->write);
+            // Libera la memoria della chat
+            free(current);
+            return 0;  // Indica il successo
+        }
+        prev = current;
+        current = current->next;
+    }
+    // La chat non è stata trovata
+    return -1;  // Indica che la chat non è stata trovata
+}
+
+
 
 // Inizializza la tabella hash
 HashTable* initializeHashTable() {
@@ -672,5 +803,66 @@ int deleteUser(Utente user){
     }
 
     return 0;
+
+}
+
+// funzione che serve per creare il file della chat univoco per ogni coppia di utenti
+int findNameChat(char* chatName, char* mittente, char* destinatario){
+    if(strcmp(mittente,destinatario) >= 0){
+        strcpy(CHAT_FOLDER);
+        strcat("/");
+        strcat(chatName,mittente);
+        strcat(chatName,"_");
+        strcat(chatName,destinatario);
+        strcat(chatname,".txt");
+    } else {
+        strcpy(CHAT_FOLDER);
+        strcpy("/");
+        strcat(chatName,destinatario);
+        strcat(chatName,"_");
+        strcat(chatName,mittente);
+        strcat(chatname,".txt");
+    }
+    return 0;
+}
+
+// Funzione per ottenere un puntatore a una chat dato il nome del file
+FileChat* getChatByFileName(const char* nomeFile) {
+    for (int i = 0; i < MAX_CHAT_FILES; ++i) {
+        if (strcmp(chatFiles[i].nomeFile, nomeFile) == 0) {
+            return &chatFiles[i];
+        }
+    }
+    fprintf(stderr, "Errore: chat non trovata per il file %s\n", nomeFile);
+    return NULL;
+}
+
+// questa funzione crea una cartella per quel determinato utente e lo
+int writeMessage(char* mittente, Messaggio message){
+    // creiamo il nome del file dalla chat fra mittente e destinatario
+    char chatName[strlen(CHAT_FOLDER)+1+strlen(mittente)+1+strlen(message.destinatario)+strlen(".txt")+1];
+    findNameChat(chatName, mittente, message.destinatario);
+
+    FileChat* file;
+    //cerchiamo il file nella lista
+    if((file=findChat(chatName)) == NULL){
+        // se non esiste lo creiamo
+        if(addChat(chatName) != 0){
+        fprintf(stderr,"Errore impossibile aggiungere una nuova chat alla lista\n");
+        return 1;
+        }
+        //prendiamo il suo puntatore
+        if((file=findChat(chatname)) == NULL){
+            fprintf(stderr,"Errore impossibile creare un nuovo file chat\n");
+            return 1;
+        }
+    }
+    //blocchiamo la scrittura sul file
+    if(pthread_mutex_lock(&(file->write)) != 0){
+        perror("Errore impossibile bloccare il muutex di scrittura sul file");
+        return 1;
+    }
+    //scriviamo il messaggio alla fine del file con il time stamp
+
 
 }

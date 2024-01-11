@@ -10,6 +10,9 @@
 #include <sys/socket.h>
 #include <sys/types.h>
 #include <signal.h>
+#include <time.h>
+#include <dirent.h>
+#include <errno.h>
 
 // file inclusi
 #include "transfertsocket.h"
@@ -23,6 +26,8 @@
 #define ENC_PSWD crypto_pwhash_STRBYTES
 #define MAX_OBJECT 20
 #define MAX_TEXT 200
+#define CHAT_FOLDER "Chats"
+
 
 #define fflush(stdin) while(getchar() != '\n')
 
@@ -41,10 +46,21 @@ typedef struct {
 } HashTable;
 
 typedef struct {
-    char dest[MAX_ID];
+    char destinatario[MAX_ID];
     char ogetto[MAX_OBJECT];
     char text[MAX_TEXT];
 } Messaggio;
+
+typedef struct FileChat{
+    char chat[5+1+MAX_ID+1+MAX_ID+4+1];
+    pthread_mutex_t write;
+    struct FileChat* next;
+} FileChat;
+
+typedef struct{
+    FileChat* head;
+    pthread_mutex_t add;
+} Listachats;
 
 
 
