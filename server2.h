@@ -24,6 +24,7 @@
 #define MAX_TEXT 200
 #define MAX_OBJECT 20
 #define MAX_PSWD 20
+#define MAX_ENCPSWD crypto_pwhash_STRBYTES
 
 #define BACKLOG 10
 
@@ -92,12 +93,24 @@ int compareChat(const void* a, const char* key);
 int compareUtente(const void* a, const char* key);
 int rmChat(void* chat);
 int rmUtente(void* user);
-int rmNode(Node** table, char* key, int (*compare)(const void*, const char*), int (*remove)(const void *));
+int rmNode(Node** table, char* key, int (*compare)(const void*, const char*), int (*remove)(void *));
 Node* searchNode(Node** table, char* key, int (*compare)(const void*, const char*));
 int addNode(Node** table, char* key, void* data);
 
 // Funzioni per la gestione dei file e dei semafori
-int startReadFile(struct semFile* sem);
-int endReadFile(struct semFile* sem);
-int startWriteFile(struct semFile* sem);
-int endWriteFile(struct semFile* sem);
+int startReadFile(struct semFile sem);
+int endReadFile(struct semFile sem);
+int startWriteFile(struct semFile sem);
+int endWriteFile(struct semFile sem);
+
+// Funzione che aggiunge un nuovo utente nella sua tabella hash
+int addUtente(char *username, long pos);
+
+// Funzione che scannerizza il file delle credenziali alla ricerca dell'utente
+int findUtente(char *key);
+
+// Funzione che registra un nuovo utente
+int regUtente(char *username, char *password);
+
+// funzione che preleva la password dal file credenziali
+int findPswd(long pos, char* password);
