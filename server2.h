@@ -13,6 +13,7 @@
 #include <time.h>
 #include <dirent.h>
 #include <errno.h>
+#include <semaphore.h>
 
 // campi massimi
 #define MAX_ID 10
@@ -28,6 +29,10 @@
 //massimo numero di righe delle tabelle
 #define MAX_TABLE 100
 
+struct semFile{
+    pthread_mutex_t main;
+    sem_t readers;
+}
 
 typedef struct{
     long seek;
@@ -37,7 +42,7 @@ typedef struct{
 typedef struct{
     long seek;
     char* chat_id;
-    pthread_mutex_t wmess;
+    struct semFile sem;
 } Chat;
 
 typedef struct{

@@ -12,8 +12,8 @@
         }
         ma al contrario
 */
-pthread_mutex_t writeCred;
-pthread_mutex_t writeChat;
+struct semFile chatsem;
+struct semFile usersem;
 
 Node* chatTable[MAX_TABLE];
 Node* userTable[MAX_TABLE];
@@ -25,8 +25,12 @@ int initDataBase(){
         fprintf(stderr,"Errore impossibile inizializzare il file credenziali\n");
         return 1;
     }
-    if(pthread_mutex_init(&(writeCred),NULL) != 0){
+    if(pthread_mutex_init(&(usersem.main),NULL) != 0){
         perror("Errore nell'inizializzazione del mutex per il file credentials");
+        return 1;
+    }
+    if(sem_init(&chatsem.readers,0,0) != 0){
+        perror("Errore nell'inizializzazione del semaforo per i readers in file chat");
         return 1;
     }
     //inizializziamo il file chat
@@ -34,8 +38,12 @@ int initDataBase(){
         fprintf(stderr,"Errore impossibile inizializzare il file chat\n");
         return 1;
     }
-    if(pthread_mutex_init(&(writeChat),NULL) != 0){
+    if(pthread_mutex_init(&(chatsem.main),NULL) != 0){
         perror("Errore nell'inizializzazione del mutex per il file chat");
+        return 1;
+    }
+    if(sem_init(&usersem.readers,0,0) != 0){
+        perror("Errore nell'inizializzazione del semaforo per i readers in file credential");
         return 1;
     }
     //inizializziamo la tabella hash per le chat
@@ -159,9 +167,13 @@ int rmChat(void* chat){
     Chat* chatptr = (Chat*)chat;
     //liberiamo la memoria allocata per il chat_id
     free(chat->chat_id);
-    //distruggiamo il mutex per scrivere un messaggio
-    if(pthread_mutex_destroy(&(chat->wmess)) != 0){
+    //distruggiamo il semaforo per scrivere un messaggio
+    if(pthread_mutex_destroy(&(chat->sem.main)) != 0){
         perror("Errore nella distruzione del mutex per la scrittura di un file in fase di eliminazione");
+        return 1;
+    }
+    if(sem_destroy(&(chat->sem.reader) != 0){
+        perror("Errore nella distruzione del semaforo per i lettori del file");
         return 1;
     }
     //liberiamo la memoria riservata alla struttura dati chat
@@ -279,11 +291,49 @@ int addNode(Node** table, char* key, void* data, int (*compare)(const void*, con
     return 0;
 }
 
-int removeChat(Chat* chat){
-    if(chat == NULL){
-        // cerchiamo la tupla 
-    } else {
-        // la chat è coprrettamente caricata nella tabella hash
-        //
+//funzione che gestisce i mutex per la lettura su file
+int startReadFile(struct semFile* sem){
+    //prendiamoil mutex main
+    if(pthread_mutex_lock(&(sem->main)) != 0){
+        perror("Impossibile prendere il mutex main del file");
+        return 1;
     }
+    //inseriamo un semaforo all'interno del semaforo reader per indicare che è presente un lettore
+    sem_post(&(sem->readers));
+    //rilasciamo il mutex main
+    if(pthread_mutex_unlock(&(sem->main)) != 0){
+        perror("Impossibile rilascaire il mutex main del file");
+        return 1;
+    }
+    return 0;
+}
+
+int endReadFile(struct semFile* sem){
+    //riprendiamo il gettone del semaforo che avevamo rilasciato allo start
+    sem_wait(&(sem->readers));
+    return 0;
+}
+
+int startWriteFile(struct semFile* sem){
+    //predniamo il mutex main
+    if(pthread_mutex_lock(&(sem->main)) != 0){
+        perror("Impossibile prendere il mutex main del file");
+        return 1;
+    }
+    //aspetiamo che non ci siano più semafori reader disponibili
+    while (sem_trywait(&sem->readers) == 0) {
+        // Tentativo riuscito, abbimo preso un token quindi dobbiamo restituirlo
+        sem_post(&(sem->readers));
+    }
+    // adesso siamo sicuri che non ci sono più lettori e non possono entrare poichè abbiamo il mutex main
+    return 0;
+}
+
+int endWriteFile(struct semFile* sem){
+    // rilasciamo il mutex main
+    if(pthread_mutex_unlock(&(sem->main)) != 0){
+        perror("Impossibile rilasciare il mutex main del file");
+        return 1;
+    }
+    return 0;
 }
