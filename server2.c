@@ -1,22 +1,257 @@
 #include "server2.h"
 
-// voglio creare una cosa più complessa di mutex per bloccare la scrittura e la lettura sui file
-/* posso fare semplicemente così, un mutex e un semaforo, un lettore controlla il mutex e se è disponibile allora rilascia un semaforo e lo riprende quando ha finito, lo scrittore invece blocca ilmutex e aspetta che non ci siano più semafori disponibili
-        if (sem_trywait(&resource->rwSemaphore) == 0) {
-            // Tentativo riuscito, entra nella sezione critica di lettura
-            return 0;
-        } else {
-            // Tentativo non riuscito, aspetta un po' prima di ritentare
-            usleep(100000);  // Aspetta 100 millisecondi (ad esempio)
-            attempts++;
-        }
-        ma al contrario
-*/
 struct semFile chatsem;
 struct semFile usersem;
 
 Node* chatTable[MAX_TABLE];
 Node* userTable[MAX_TABLE];
+int serverSocket; // descrittore della socket lato server
+
+int main(int argc, char **argv){
+    // inseriamo 2 parametri: indirizzo ip e porta del server
+    // controllo inserimento dei 2 parametri
+    if(argc != 3){
+        fprintf(stderr,"Usare: %s [IP address] (if IP=null is the same of machine) [port]\n",argv[0]);
+        exit(EXIT_FAILURE);
+    }
+
+    //inizializzazione della gestione dei segnali
+    if(initSignal() != 0){
+        fprintf(stderr,"errore nell'inizializzazione dei segnali\n");
+        exit(EXIT_FAILURE);
+    }
+
+    //inizializzazione della socket
+    if(initSocket(argv[1], argv[2]) != 0){
+        fprintf(stderr,"errore nell'inizializzazione della socket\n");
+        exit(EXIT_FAILURE);
+    }
+
+    //inizializzazione della libreria di crypto
+    if(initCrypto() != 0){
+        fprintf(stderr,"Errore nell'inizializzazione della libreria crittografica\n");
+        closeServer();
+        exit(EXIT_FAILURE);
+    }
+
+    // inizializzazione del file credenziali e della struttura dati tableuser
+    if(initDataBase() != 0){
+        fprintf(stderr,"Errore: impossibile inizializzare i database\n");
+        closeServer();
+        exit(EXIT_FAILURE);
+    }
+    //accettazione di nuove connessioni con i client attraverso threads separati
+    while(1){
+        //mettiamo la socket in stato di accettazione
+        struct sockaddr_in client_addr;
+        socklen_t client_addr_len = sizeof(client_addr);
+        int clientSocket = accept(serverSocket, (struct sockaddr *)&client_addr, &client_addr_len);
+        if (clientSocket < 0) {
+            perror("Errore connessione alla socket");
+            closeServer();
+            exit(EXIT_FAILURE);
+        }
+        //creiamo un thread per ogni nuova connessione in ingresso
+        pthread_t thread;
+        if(pthread_create(&thread,NULL,mainThread,(void *)&clientSocket) != 0){
+            perror("Errore creazione nuovo thread");
+            close(clientSocket);
+            closeServer();
+            exit(EXIT_FAILURE);
+        }
+        printf("connesso un nuovo client! \n");
+    }
+    closeServer();
+    return 0;
+}
+
+
+/* Funzione che chiude il server correttamente */
+void signalclose(){
+    closeServer();
+    printf("\n Il server e' stato chiuso correttamente\n");
+    exit(EXIT_SUCCESS);
+}
+
+/* Questa funzione serve a chiudere correttamente tutte le componenti del server*/
+void closeServer(){
+    close(serverSocket);
+}
+
+/* funzione che inizializza la maschera dei segnali da gestire */
+int initSignal(){
+    sigset_t mask;
+    //inizializzazione della struttura per sigaction
+    struct sigaction sa;
+    sa.sa_handler = signalclose;
+    sa.sa_flags = SA_RESTART;
+
+    sigfillset(&mask); // aggiungiamo alla maschera tutti i segnali
+    sigdelset(&mask, SIGINT); // togliamo dalla maschera SIGINT
+    sigdelset(&mask, SIGPIPE); // togliamo dalla maschera SIGPIPE
+    sigdelset(&mask, SIGTERM); // togliamo il segnale SIGTERM per terminare il server
+
+    if(sigprocmask(SIG_SETMASK, &mask, NULL) != 0){
+        perror("Errore nell'impostare la maschera dei segnali");
+        return 1;
+    }
+
+    // configurazione sigaction per SIGTERM
+    if (sigaction(SIGTERM, &sa, NULL) == -1) {
+        perror("Errore durante la configurazione di SIGTERM");
+        return 1;
+    }
+    // Configura sigaction per SIGINT
+    if (sigaction(SIGINT, &sa, NULL) == -1) {
+        perror("Errore durante la configurazione di SIGINT");
+        return 1;
+    }
+
+    return 0;
+    /* adesso SIGTERM E SIGINT fanno la stessa cosa mentre SIGPIPE è ignorato implicitamente quidni comportamnento di default */
+
+}
+
+
+/* funzione per l'inizializzazione della socket, la funzione crea la socket ma non la mette in ascolto */
+int initSocket (char *ipAddress, char *portstring){
+    int functret; // intero utilizzato per controllare il valore di ritorno delle funzioni chiamate
+    // controllo della porta
+    if((functret = portValidate(portstring)) != 0){
+        if(functret == 1){
+            fprintf(stderr,"Errore, la porta specificata non e' valida.\n");
+            return 1;
+        } else if(functret == 2){
+            fprintf(stderr,"Errore, la porta specificata e' minore di 5001.\n");
+            return 1;
+        } else if(functret == 3){
+            fprintf(stderr,"Errore, la porta specificata e' maggiore di 65535.\n");
+            return 1;
+        }
+        
+    }
+    // controllo dell'indirizzo IP
+    if((functret = ipValidate(ipAddress)) != 0){
+        if(strcmp(ipAddress,"null") != 0){ // se l'utente ha inserito null verrà automaticamente inserito l'indirizzo della macchina dove si sta runnando il server
+            fprintf(stderr,"Errore, l'indirizzo IP %s non e' valido.\n",ipAddress);
+            return 1;
+        }
+    }
+    
+    int port = strtol(portstring, NULL, 10);
+
+    struct sockaddr_in serverAddr;
+
+    //creazione del socket del server
+    if ((serverSocket = socket(AF_INET, SOCK_STREAM, 0)) == -1) {
+        perror("Errore durante la creazione del socket");
+        return 1;
+    }
+
+    // Configurazione dell'indirizzo del server
+    serverAddr.sin_family = AF_INET;
+    if(functret != 0){
+        // Assegnazione diretta del valore numerico INADDR_ANY a serverAddr.sin_addr.s_addr
+        serverAddr.sin_addr.s_addr = INADDR_ANY;
+    } else {
+        serverAddr.sin_addr.s_addr = inet_addr(ipAddress);
+    }
+    serverAddr.sin_port = htons(port);
+
+    // Binding del socket
+    if (bind(serverSocket, (struct sockaddr *)&serverAddr, sizeof(serverAddr)) == -1) {
+        perror("Errore durante il binding");
+        return 1;
+    }
+
+    if (listen(serverSocket, BACKLOG) < 0) { //BACKLOG numero massimo di connessioni in contemporanea sulla stessa socket
+        perror("Errore nella listen");
+        return 1;
+    }
+
+    printf("il server ascolta su IP = %s e porta = %d\n",inet_ntoa(serverAddr.sin_addr),ntohs(serverAddr.sin_port));
+    return 0;
+}
+
+/* Questa funzione controlla che l'input utente della porta sia veramente un numero e che sia maggiore di 5000 e minore di 65536 poiche' rientrano nel range non privilegiato di porte per uso personale */
+int portValidate(const char *string){
+    // trasforma la stringa in numero
+    char *endptr;
+    int port = strtol(string, &endptr, 10);
+    //controlliamo che l'input era un numero valido
+    if(*endptr != '\0'){
+        return 1;
+    } else if(port < 5001){
+        return 2;
+    } else if(port > 65535){
+        return 3;
+    }
+    return 0;
+}
+
+/* Questa funzione controlla che l'input utente dell'indirizzo IP sia valido */
+int ipValidate(const char *ipAddress) {
+    struct sockaddr_in sa;
+    if(inet_pton(AF_INET, ipAddress, &(sa.sin_addr))!=1){
+        return 1;
+    }
+    return 0;
+}
+
+
+/* funzione che inizializza la libreria di criptazione */
+int initCrypto(){
+    if (sodium_init() < 0) {
+        perror("problemi inizializzazione libreria libsodium");
+        return 1;
+    }
+
+    return 0;
+}
+
+//funzione main dei thread
+void *mainThread(void *clientSocket) {
+
+    int socket = *((int *)clientSocket); //cast del descrittore della socket
+    char user[MAX_ID]; //buffer che identifica il thread per un determinato user loggato lato client
+    // stringhe per la criptazione della socket con il client
+    unsigned char server_pk[crypto_kx_PUBLICKEYBYTES], server_sk[crypto_kx_SECRETKEYBYTES];
+    unsigned char server_rx[crypto_kx_SESSIONKEYBYTES], server_tx[crypto_kx_SESSIONKEYBYTES];
+    unsigned char client_pk[crypto_kx_PUBLICKEYBYTES];
+
+    // scambio di chiavi per la criptazione dei dati
+    if(key_exchange(server_pk, server_sk, server_rx, server_tx, client_pk, socket) != 0){
+        printf("non è stato possibile stabilire una connessione sicura");
+        close(socket);
+        pthread_exit(NULL);
+    }
+
+    close(socket);
+    pthread_exit(NULL);
+}
+
+
+//la funzione serve per scambiare le chiavi crittografiche fra il client e il thread associato
+int key_exchange(unsigned char* server_pk, unsigned char* server_sk, unsigned char* server_rx, unsigned char* server_tx, unsigned char* client_pk, int socket){
+    // Genera le chiavi del server privata e pubblica
+    crypto_kx_keypair(server_pk, server_sk);
+    // Invia la chiave pubblica del server al client
+    if(send_data(server_pk,crypto_kx_PUBLICKEYBYTES,socket) != 0){
+        printf("errore nell'invio del server_pk \n");
+        return 1;
+    }
+    // Riceve la chiave pubblica del client al server
+    if(receive_data(client_pk,crypto_kx_PUBLICKEYBYTES,socket) != 0){
+        printf("errore nella ricezione del client_pk \n");
+        return 1;
+    }
+    // Calcola una coppia di chiavi per criptazione e decriptazione dei dati
+    if (crypto_kx_server_session_keys(server_rx, server_tx, server_pk, server_sk, client_pk) != 0) {
+        printf("Errore nel creare la coppia di chiavi per ricezione e invio \n");
+        return 1;
+    }
+    return 0;
+}
 
 // questa funzione ha lo scopo di aggiornare tutti i file mantenedno solo le tuple valide e di creare le tabelle vuote per utenti e chat
 int initDataBase(){
@@ -47,17 +282,27 @@ int initDataBase(){
         return 1;
     }
     //inizializziamo la tabella hash per le chat
-    for(int i=0;i<MAX_CHATTABLE;i++){
-        chatTable[i] = NULL;
+    for(int i=0;i<MAX_TABLE;i++){
+        chatTable[i] = malloc(sizeof(Node));
+        if(chatTable[i] == NULL){
+            perror("Errore nell'inizializzazione della hash table per le chat");
+            return 1;
+        }
+        chatTable[i]->content = NULL;
         if(pthread_mutex_init(&(chatTable[i]->modify),NULL) != 0){
             perror("Errore nell'inizializzazione del mutex nella tabella chatTable");
             return 1;
         }
     }
     //inizializziamo la tabella hash per le credenziali utenti
-    for(int j=0;j<MAX_USERTABLE;j++){
-        userTable[i]=NULL;
-        if(pthread_mutex_init(&(userTable[i]->modify),NULL) != 0){
+    for(int j=0;j<MAX_TABLE;j++){
+        userTable[j] = malloc(sizeof(Node));
+        if(userTable[j] == NULL){
+            perror("Errore nell'inizializzazione della hash table per le chat");
+            return 1;
+        }
+        userTable[j]->content = NULL;
+        if(pthread_mutex_init(&(userTable[j]->modify),NULL) != 0){
             perror("Errore nell'inizializzazione del mutex nella tabella userTable");
             return 1;
         }
@@ -148,7 +393,7 @@ unsigned int hash_function(char* key) {
     while (*key) {
         hash = (hash * 31) + (*key++);
     }
-    return hash % HASH_SIZE;
+    return hash % MAX_TABLE;
 }
 
 // Funzione di confronto per Chat
@@ -166,18 +411,18 @@ int rmChat(void* chat){
     //cast del puntatore
     Chat* chatptr = (Chat*)chat;
     //liberiamo la memoria allocata per il chat_id
-    free(chat->chat_id);
+    free(chatptr->chat_id);
     //distruggiamo il semaforo per scrivere un messaggio
-    if(pthread_mutex_destroy(&(chat->sem.main)) != 0){
+    if(pthread_mutex_destroy(&(chatptr->sem.main)) != 0){
         perror("Errore nella distruzione del mutex per la scrittura di un file in fase di eliminazione");
         return 1;
     }
-    if(sem_destroy(&(chat->sem.reader) != 0){
+    if(sem_destroy(&(chatptr->sem.readers)) != 0){
         perror("Errore nella distruzione del semaforo per i lettori del file");
         return 1;
     }
     //liberiamo la memoria riservata alla struttura dati chat
-    free(chat);
+    free(chatptr);
     return 0;
 }
 
@@ -186,8 +431,8 @@ int rmUtente(void* user){
     //cast del puntatore
     Utente* userptr = (Utente*)user;
     //liberiamo la memoria per riservata per l'username
-    free(user->username);
-    free(user);
+    free(userptr->username);
+    free(userptr);
     return 0;
 }
 
@@ -205,7 +450,7 @@ int rmNode(Node** table, char* key, int (*compare)(const void*, const char*), in
             return 1;
         }
         //se current è il primo nodo passiamo al successivo
-        if(current = table[i]){
+        if(current == table[i]){
             prev = current;
             current = prev->next;
         } else {
@@ -261,7 +506,7 @@ Node* searchNode(Node** table, char* key, int (*compare)(const void*, const char
 }
 
 // funzione che crea un nuovo nodo per una determinata struttura dati e lo aggiunge un testa alla lista
-int addNode(Node** table, char* key, void* data, int (*compare)(const void*, const char*)){
+int addNode(Node** table, char* key, void* data){
     // troviamo indice per la riga
     unsigned int i = hash_function(key);
     //creiamo un nuovo nodo
@@ -337,3 +582,4 @@ int endWriteFile(struct semFile* sem){
     }
     return 0;
 }
+
