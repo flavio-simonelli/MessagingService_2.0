@@ -15,10 +15,12 @@
 #include "transfertsocket.h"
 #include "inputuser.h"
 
-#define MAX_ID 20
-#define MAX_PSWD 20
-#define MAX_OBJECT 20
+#define MAX_ID 10
+#define MAX_CHATID 10
 #define MAX_TEXT 200
+#define MAX_OBJECT 20
+#define MAX_PSWD 20
+#define MAX_ENCPSWD crypto_pwhash_STRBYTES
 
 typedef struct {
     char dest[MAX_ID];

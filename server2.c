@@ -233,6 +233,7 @@ void *mainThread(void *clientSocket) {
         close(socket);
         pthread_exit(NULL);
     }
+    printf("operazione selezionata: %d \n",op);
     //ricezione username
     int resp = 1;
     Utente* user = NULL;
@@ -243,6 +244,7 @@ void *mainThread(void *clientSocket) {
             close(socket);
             pthread_exit(NULL);
         }
+        printf("username ricevuto: %s\n",username);
         if(op != 1){
             // fase di accesso
             Node* node = NULL;
@@ -262,12 +264,16 @@ void *mainThread(void *clientSocket) {
             }
         } else {
             // fase di registrazione
-            if(findUtente(username) == 2){
-                // username ancora non utilizzato
-                resp = 0;
-            } else {
-                // username già esistente
+            if(searchNode(userTable,username,compareUtente) != NULL){
                 resp = 2;
+            } else {
+                if(findUtente(username) == 2){
+                    // username ancora non utilizzato
+                    resp = 0;
+                } else {
+                    // username già esistente
+                    resp = 2;
+                } 
             }
         }
         //inviamo risposta al client
@@ -484,16 +490,18 @@ int initFile(char* nomeFile){
                 fputc(temp,originalfile);
             }
             fputc(temp,originalfile); //scriviamo il carattere nuova riga
+        } else {
+            // Altrimenti, se è '0', la riga viene saltata
+            while(((temp = fgetc(dupfile)) != '\n') || (temp == EOF)){
+                if(temp == EOF){
+                    fprintf(stderr,"Errore durante lo scarto di una tupla non valida\n");
+                    fclose(originalfile);
+                    fclose(dupfile);
+                    return 1;
+                }
+            } 
         }
-        // Altrimenti, se è '0', la riga viene saltata
-        while(((temp = fgetc(dupfile)) != '\n') || (temp == EOF)){
-            if(temp == EOF){
-                fprintf(stderr,"Errore durante lo scarto di una tupla non valida\n");
-                fclose(originalfile);
-                fclose(dupfile);
-                return 1;
-            }
-        }
+
     }
     // Chiude entrambi i file
     fclose(dupfile);
@@ -550,14 +558,14 @@ int rmUtente(void* user){
     //cast del puntatore
     Utente* userptr = (Utente*)user;
     // invalidiamo la riga nel file credenziali
-    if(startWriteFile(usersem) != 0){
+    if(startWriteFile(&usersem) != 0){
         fprintf(stderr,"Errore blocco semaforo in scrittura sul file crednziali\n");
         return 1;
     }
     char pathfile[strlen(FILECRED)+5];
     strcpy(pathfile,FILECRED);
     strcat(pathfile,".txt");
-    FILE* file = fopen(pathfile,"w");
+    FILE* file = fopen(pathfile,"r+");
     if(file == NULL){
         fprintf(stderr,"Errore impossibile aprire il file crednziali\n");
         return 1;
@@ -569,7 +577,7 @@ int rmUtente(void* user){
     }
     fprintf(file,"0");
     fclose(file);
-    if(endWriteFile(usersem) != 0){
+    if(endWriteFile(&usersem) != 0){
         fprintf(stderr,"Errore nel rilascio del mutex scrittura credenziali\n");
         return 1;
     }
@@ -680,16 +688,16 @@ int addNode(Node** table, char* key, void* data){
 }
 
 //funzione che gestisce i mutex per la lettura su file
-int startReadFile(struct semFile sem){
+int startReadFile(struct semFile* sem){
     //prendiamoil mutex main
-    if(pthread_mutex_lock(&(sem.main)) != 0){
+    if(pthread_mutex_lock(&(sem->main)) != 0){
         perror("Impossibile prendere il mutex main del file");
         return 1;
     }
     //inseriamo un semaforo all'interno del semaforo reader per indicare che è presente un lettore
-    sem_post(&(sem.readers));
+    sem_post(&(sem->readers));
     //rilasciamo il mutex main
-    if(pthread_mutex_unlock(&(sem.main)) != 0){
+    if(pthread_mutex_unlock(&(sem->main)) != 0){
         perror("Impossibile rilascaire il mutex main del file");
         return 1;
     }
@@ -697,32 +705,32 @@ int startReadFile(struct semFile sem){
 }
 
 // funzione che gestisce la struttura dati semaforo
-int endReadFile(struct semFile sem){
+int endReadFile(struct semFile* sem){
     //riprendiamo il gettone del semaforo che avevamo rilasciato allo start
-    sem_wait(&(sem.readers));
+    sem_wait(&(sem->readers));
     return 0;
 }
 
 // funzione che gestisce la struttura dati semaforo
-int startWriteFile(struct semFile sem){
+int startWriteFile(struct semFile* sem){
     //predniamo il mutex main
-    if(pthread_mutex_lock(&(sem.main)) != 0){
+    if(pthread_mutex_lock(&(sem->main)) != 0){
         perror("Impossibile prendere il mutex main del file");
         return 1;
     }
     //aspetiamo che non ci siano più semafori reader disponibili
-    while (sem_trywait(&sem.readers) == 0) {
+    while (sem_trywait(&sem->readers) == 0) {
         // Tentativo riuscito, abbimo preso un token quindi dobbiamo restituirlo
-        sem_post(&(sem.readers));
+        sem_post(&(sem->readers));
     }
     // adesso siamo sicuri che non ci sono più lettori e non possono entrare poichè abbiamo il mutex main
     return 0;
 }
 
 // funzione che gestisce la struttura dati semaforo
-int endWriteFile(struct semFile sem){
+int endWriteFile(struct semFile* sem){
     // rilasciamo il mutex main
-    if(pthread_mutex_unlock(&(sem.main)) != 0){
+    if(pthread_mutex_unlock(&(sem->main)) != 0){
         perror("Impossibile rilasciare il mutex main del file");
         return 1;
     }
@@ -756,7 +764,7 @@ int addUtente(char* username, long pos){
 //questa funzione scannerizza tutto il file credenziali alla ricerca dell'username selezionato se lo trova aggiunge un nuovo nodo nella struttura dati e ritorna 0 altrimenti ritorna 2
 int findUtente(char* key){
     // blocchiamo i mutex necessari
-    if(startReadFile(usersem) != 0){
+    if(startReadFile(&usersem) != 0){
         fprintf(stderr,"Errore impossibile entrare in lettura nel file credenziali\n");
         return 1;
     }
@@ -778,37 +786,48 @@ int findUtente(char* key){
     }
     int temp;
     long pos = ftell(file);
-    while(fscanf(file,"%d %s %*s\n",&temp,username) == 1){
+    while(fscanf(file,"%d %s %*s\n",&temp,username) == 2){
+        printf("scanner di una riga con %s..\n",username);
         if(temp == 1){
             // la riga corrente è valida
             if(strcmp(key,username) == 0){
                 //abbiamo trovato l'utente
                 if(addUtente(username,pos) != 0){
                     fprintf(stderr,"Errore impossibile aggiungere un nuovo nodo utente nella tabella hash\n");
+                    free(username);
+                    fclose(file);
                     return 1;
                 }
                 // rilasciamo il mutex
-                if(endReadFile(usersem) != 0){
+                if(endReadFile(&usersem) != 0){
                     fprintf(stderr,"Errore impossibile rilacaire il semaforo read al file credenziali\n");
+                    free(username);
+                    fclose(file);
                     return 1;
                 }
+                free(username);
+                fclose(file);
                 return 0;
             }
         }
         pos = ftell(file);
     }
     //non è stato trovato l'utente richiesto quindi ritorniamo valore 2
-    if(endReadFile(usersem) != 0){
+    if(endReadFile(&usersem) != 0){
         fprintf(stderr,"Errore impossibile rilascaire mutex in lettua per il file credenziali\n");
+        free(username);
+        fclose(file);
         return 1;
     }
+    free(username);
+    fclose(file);
     return 2;
 }
 
 // funzione che registra un nuovo utente
 int regUtente(char* username, char* password){
     // blocchiamo il file in scrittura
-    if(startWriteFile(usersem) != 0){
+    if(startWriteFile(&usersem) != 0){
         fprintf(stderr,"Errore semaforo in fase di scrittura in credenziali\n");
         return 1;
     }
@@ -836,7 +855,7 @@ int regUtente(char* username, char* password){
         return 1;
     }
     //rilasciamo il mutex della scrittura
-    if(endWriteFile(usersem) != 0){
+    if(endWriteFile(&usersem) != 0){
         fprintf(stderr,"Errore semaforo in fase di scrittura in credenziali\n");
         fclose(file);
         return 1;
@@ -848,7 +867,7 @@ int regUtente(char* username, char* password){
 // funzione che inserisce in password la password dell'utente altrimenti ritorn 1
 int findPswd(long pos, char* password){
     //bocco in lettura il file credenziali
-    if(startReadFile(usersem) != 0){
+    if(startReadFile(&usersem) != 0){
         fprintf(stderr,"Errore blocco semafor in lettura creddnziali\n");
         return 1;
     }
@@ -869,5 +888,10 @@ int findPswd(long pos, char* password){
     }
     // leggo la passowerd
     fscanf(file,"%*d %*s %s\n",password);
+    //rilascio il mutex di lettura
+    if(endReadFile(&usersem) != 0){
+        fprintf(stderr,"Errore rilascio semaforo in lettura\n");
+        return 1;
+    }
     return 0;
 }

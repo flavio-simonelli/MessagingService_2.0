@@ -98,10 +98,10 @@ Node* searchNode(Node** table, char* key, int (*compare)(const void*, const char
 int addNode(Node** table, char* key, void* data);
 
 // Funzioni per la gestione dei file e dei semafori
-int startReadFile(struct semFile sem);
-int endReadFile(struct semFile sem);
-int startWriteFile(struct semFile sem);
-int endWriteFile(struct semFile sem);
+int startReadFile(struct semFile* sem);
+int endReadFile(struct semFile* sem);
+int startWriteFile(struct semFile* sem);
+int endWriteFile(struct semFile* sem);
 
 // Funzione che aggiunge un nuovo utente nella sua tabella hash
 int addUtente(char *username, long pos);

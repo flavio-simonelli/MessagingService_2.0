@@ -38,14 +38,66 @@ int main(int argc, char** argv){
         close(sock);
         exit(EXIT_FAILURE);
     }
-
     //fase di autenticazione
-    //invio delle credenziali al server
-    if(authentication(user) !=0){
-        printf("errore durante la registrazione \n");
-        close(sock);
-        exit(EXIT_FAILURE);
+    int resp = -1;
+    char* username;
+    while( resp != 0){
+            // allocazione di memoria per l'userrname
+        if((username = (char*)malloc(MAX_ID * sizeof(char))) == NULL){
+            perror("error to malloc for username");
+            exit(EXIT_FAILURE);
+        }
+        //richiesta username
+        if(stringrequire(username,MAX_ID,"username",4)!=0){
+            printf("errore nella richiesta del'username \n");
+            close(sock);
+            exit(EXIT_FAILURE);
+        }
+        printf("%s \n",username);
+        if(send_encrypted_data(sock,(const unsigned char*)username, MAX_ID, client_tx) != 0){
+            printf("errore invio userrname \n");
+            close(sock);
+            exit(EXIT_FAILURE);
+        }
+    	//aspettiamo la risposta del server
+        if(receive_encrypted_int(sock,&resp,1,client_rx) != 0){
+            fprintf(stderr,"Errore impossibile ricevere la risposta dal server\n");
+            close(sock);
+            exit(EXIT_FAILURE);
+        }
+        printf("risposta del server: %d\n",resp);
+        free(username);
     }
+    printf("Username accettato!\n");
+    resp = -1;
+    //richiesta password utente
+    char *password; // buffer temporaneo per la password in chiaro
+    do{
+        // allocazione di memoria per la password in chiaro
+        if((password = (char*)malloc(MAX_PSWD * sizeof(char))) == NULL){
+            perror("error to malloc for password");
+            exit(EXIT_FAILURE);
+        }
+        //richiesta password
+        if(stringrequire(password,MAX_PSWD,"password",8) != 0){
+            printf("errore nella richiesta della password \n");
+            return 1;
+        }
+        // invio della password in chiaro
+        if(send_encrypted_data(sock,(const unsigned char*)password,MAX_PSWD,client_tx)!=0){
+            printf("errore nell'invio della password verso il server \n");
+            return 1;
+        }
+        // attesa della risposta da parte del server
+        if(receive_encrypted_int(sock,&resp,1,client_rx) !=0){
+            printf("errore nella ricezione della rispodta del client \n");
+        }
+        if(resp == 1){ // password errata in caso di accesso o eliminazione dall'account
+            printf("password errata, per favore inserisci la password corretta \n");
+        }
+        free(password); // deallochiamo memoria per password in chiaro
+    }while(resp != 0);
+
     if(op==0){
         printf("Accesso avvenuto con successo! \nBentornato %s! \n", user);
     } else if( op == 1){
@@ -245,8 +297,4 @@ int ipValidate(const char *ipAddress) {
         return 1;
     }
     return 0;
-}
-
-int sendMessage(){
-    
 }
