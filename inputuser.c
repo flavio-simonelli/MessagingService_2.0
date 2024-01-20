@@ -92,7 +92,7 @@ int stringrequire(char* string, size_t size, char* ogetto, int minchar){ // stri
     return 0;
 }
 
-int intrequire(int16_t *num, int max, char *oggetto) {
+int intrequire(int *num, int max, char *oggetto) {
     int counter = 0;
     int validate = max;
     if(validate == 0){

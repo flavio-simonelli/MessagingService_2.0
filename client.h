@@ -21,6 +21,7 @@
 #define MAX_OBJECT 20
 #define MAX_PSWD 20
 #define MAX_ENCPSWD crypto_pwhash_STRBYTES
+#define MAX_PART 10 //numero massimo di partecipanti
 
 typedef struct {
     char dest[MAX_ID];

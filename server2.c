@@ -277,7 +277,7 @@ void *mainThread(void *clientSocket) {
             }
         }
         //inviamo risposta al client
-        if(send_encrypted_int(socket,resp,server_tx) != 0){
+        if(send_encrypted_int(socket,resp,1,server_tx) != 0){
             fprintf(stderr,"Errore nell'invio della rispsota\n");
             close(socket);
             pthread_exit(NULL);
@@ -334,7 +334,7 @@ void *mainThread(void *clientSocket) {
             resp = 0;
         }
         //inviamo risposta al client
-        if(send_encrypted_int(socket,resp,server_tx) != 0){
+        if(send_encrypted_int(socket,resp,1,server_tx) != 0){
             fprintf(stderr,"Errore nell'invio della rispsota\n");
             close(socket);
             pthread_exit(NULL);
@@ -348,6 +348,37 @@ void *mainThread(void *clientSocket) {
             fprintf(stderr,"Errore nell'eliminazione dell'utente\n");
             close(socket);
             pthread_exit(NULL);
+        }
+    }
+
+    // Fase principale
+    while(1){
+        op = -1; // resettiamo il valore dell'operazione a default
+        // riceviamo operazione da eseguire
+        if(receive_encrypted_int(socket,&op,1,server_rx) != 0){
+            fprintf(stderr,"Errore impossibile ricevere operazione di autenticazione dal client\n");
+            close(socket);
+            pthread_exit(NULL);
+        }
+        printf("operazione scelta: %d\n",op);
+        if(op == 0){
+            //creazione nuova chat
+            // richiesta numero di partecipanti
+            int numpart;
+            resp = -1;
+            while(resp != 0){
+                if(receive_encrypted_int(socket,&numpart,snprintf(NULL,0,"%d",MAX_PART),server_rx) != 0){ // attenzione il numero di partecipanti è indefinito!!!!! non riescoa  farlo funzionare
+                    fprintf(stderr,"Errore nel ricevere il numero di partecipanti\n");
+                    close(socket);
+                    pthread_exit(NULL);
+                }
+                printf("numero partecipanti: %d\n",numpart);
+                resp=0;
+            }
+        } else if(op == 1){
+            //apri chat esistente
+        } else if(op == 2){
+            //elimina chat esistente
         }
     }
 
@@ -893,5 +924,81 @@ int findPswd(long pos, char* password){
         fprintf(stderr,"Errore rilascio semaforo in lettura\n");
         return 1;
     }
+    return 0;
+}
+
+// funzione che aggiunge un nodo chat all'interno della tabella hash
+int addChat(char* chatid, long pos){
+    Chat* chat = malloc(sizeof(Chat));
+    if(chat == NULL){
+        fprintf(stderr,"Errore malloc per nuova chat\n");
+        return 1;
+    }
+    char* id = malloc(strlen(chatid)+1);
+    if(id == NULL){
+        fprintf(stderr,"Errore malloc per id chat\n");
+        return 1;
+    }
+    strcpy(id,chatid);
+    chat->chat_id = id;
+    chat->seek = pos;
+    if(pthread_mutex_init(&(chat->sem.main),NULL) != 0){
+        perror("Errore inizializzazione mutex chat");
+        return 1;
+    }
+    if(sem_init(&(chat->sem.readers),0,0) != 0){
+        perror("Errore inizializzazione semaforo chat");
+        return 1;
+    }
+    //aggiungiamo il nodo nella tabella hash
+    if(addNode(chatTable,id,(void*)chat) != 0){
+        fprintf(stderr,"Errore impossibile aggiungere un nuovo nodo nella tabella hash\n");
+        return 1;
+    }
+    return 0;
+    
+}
+
+// funzione che registra una nuova chat nel file chat e inserisce il nodo nella tabella hash
+int regChat(char* chat_id, int numpart, char** part){
+    // blocchiamo il file in scrittura
+    if(startWriteFile(&chatsem) != 0){
+        fprintf(stderr,"Errore semaforo in fase di scrittura in chats\n");
+        return 1;
+    }
+    //apriamo il file in append
+    char pathfile[strlen(FILECHAT)+5];
+    strcpy(pathfile,FILECHAT);
+    strcat(pathfile,".txt");
+    FILE* file = fopen(pathfile,"a");
+    if(file == NULL){
+        fprintf(stderr,"Errore impossibile aprire il file in modlaità append\n");
+        return 1;
+    }
+    int pos = ftell(file);
+    //scriviamo la nuova tupla
+    if(fprintf(file,"1 %s %d",chat_id,numpart) < 0){
+        perror("Errore durante la scrittura sul file");
+        fclose(file);
+        return 1;
+    }
+    for(int i=0;i<numpart;i++){
+        fprintf(file," %s",part[i]);
+    }
+    fprintf(file,"\n");
+    fflush(stdout);
+    //aggiungiamo l'utente all'interno della tabella hash
+    if(addChat(chat_id,pos) != 0){
+        fprintf(stderr,"Errore impossibile aggiungere la chat nella tabella hash\n");
+        fclose(file);
+        return 1;
+    }
+    //rilasciamo il mutex della scrittura
+    if(endWriteFile(&usersem) != 0){
+        fprintf(stderr,"Errore semaforo in fase di scrittura in credenziali\n");
+        fclose(file);
+        return 1;
+    }
+    fclose(file);
     return 0;
 }

@@ -33,7 +33,7 @@ int main(int argc, char** argv){
         exit(EXIT_FAILURE);
     }
     //invio operazione da eseguire al server
-    if( send_encrypted_int(sock,op,client_tx) != 0){
+    if( send_encrypted_int(sock,op,1,client_tx) != 0){
         printf("errore invio operazioen pre autenticazione \n");
         close(sock);
         exit(EXIT_FAILURE);
@@ -106,6 +106,37 @@ int main(int argc, char** argv){
         printf("Eliminazione dell'account avvenuta correttamente! \nArrivederci %s! \n",user);
         close(sock);
         exit(EXIT_SUCCESS);
+    }
+
+    // fase principale
+    option[0] = "Nuova Chat";
+    option[1] = "Apri Chat";
+    option[2] = "Elimina Chat";
+    op = -1;
+    if( operationrequire(&op,option,3) != 0){ //funzione che chiede all'utente di scegliere un'opzione fra quelle elencate
+        printf("errore nella richiesta di un'operazione fase principasle \n");
+        close(sock);
+        exit(EXIT_FAILURE);
+    }
+    //invio operazione da eseguire al server
+    if( send_encrypted_int(sock,op,1,client_tx) != 0){
+        printf("errore invio operazioen fase principale \n");
+        close(sock);
+        exit(EXIT_FAILURE);
+    }
+    if(op == 0){
+        //creazione nuova chat
+        int part;
+        if(intrequire(&part,MAX_PART,"numero di partecipanti") != 0){
+            printf("errore invio operazioen fase principale \n");
+            close(sock);
+            exit(EXIT_FAILURE);
+        }
+        if(send_encrypted_int(sock,part,snprintf(NULL,0,"%d",MAX_PART),client_tx) != 0){
+            printf("errore invio operazioen fase principale \n");
+            close(sock);
+            exit(EXIT_FAILURE);
+        }
     }
 
     return 0;

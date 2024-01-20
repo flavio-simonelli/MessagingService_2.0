@@ -20,5 +20,5 @@ int send_encrypted_data(int socket, const unsigned char *data, size_t data_lengt
 int receive_encrypted_data(int socket, unsigned char *received_data, size_t max_data_length, const unsigned char *rx_key);
 
 int receive_encrypted_int(int socket, int* num, size_t sizenum, const unsigned char *rx_key);
-int send_encrypted_int(int socket, int value, const unsigned char *tx_key);
+int send_encrypted_int(int socket, int value, size_t max_len, const unsigned char *tx_key);
 

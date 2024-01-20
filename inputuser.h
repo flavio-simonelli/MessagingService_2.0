@@ -10,4 +10,4 @@ int operationrequire(int* num,char** options, int numopt);
 
 int stringrequire(char* string, size_t size, char* ogetto, int minchar);
 
-int intrequire(int16_t *num, int max, char *oggetto);
+int intrequire(int *num, int max, char *oggetto);

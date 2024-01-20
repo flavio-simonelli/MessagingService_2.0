@@ -118,14 +118,11 @@ int receive_encrypted_int(int socket, int* num, size_t sizenum, const unsigned c
     return 0;
 }
 
-int send_encrypted_int(int socket, int value, const unsigned char *tx_key) {
+int send_encrypted_int(int socket, int value, size_t max_len, const unsigned char *tx_key) {
     //conversione dell'intero in una stringa
-    // Calcoliamo il numero di caratteri necessari per scrivere in una stringa il numero
-    int num_chars = snprintf(NULL, 0, "%d", value); // se il primo parametro è specificato a null la funzione ha lo scopo di contare il numero di caratteri che sarebbero stati scritti    
-    // Allochiamo un buffer per contenere la stringa
-    char buffer[num_chars + 1];  // +1 per il terminatore di stringa nullo
-    // Convertiamo il numero nella stringa
-    snprintf(buffer, sizeof(buffer), "%d", value);
+    char buffer[max_len+1];
+    int size = snprintf(NULL,0,"%d",value);
+    snprintf(buffer,max_len+1,"%0*d",(int)(max_len-size),value); // questa funzione converte il numero in una stringa aggiungendo 0 davanti ad esso per avere una stringa di dimensione fissa
     // Invia l'intero cifrato
     if(send_encrypted_data(socket, (const unsigned char *)buffer, sizeof(buffer), tx_key) != 0){
         fprintf(stderr, "Errore nell'invio dell'intero criptato \n");
