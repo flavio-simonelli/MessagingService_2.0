@@ -112,30 +112,104 @@ int main(int argc, char** argv){
     option[0] = "Nuova Chat";
     option[1] = "Apri Chat";
     option[2] = "Elimina Chat";
-    op = -1;
-    if( operationrequire(&op,option,3) != 0){ //funzione che chiede all'utente di scegliere un'opzione fra quelle elencate
-        printf("errore nella richiesta di un'operazione fase principasle \n");
-        close(sock);
-        exit(EXIT_FAILURE);
-    }
-    //invio operazione da eseguire al server
-    if( send_encrypted_int(sock,op,1,client_tx) != 0){
-        printf("errore invio operazioen fase principale \n");
-        close(sock);
-        exit(EXIT_FAILURE);
-    }
-    if(op == 0){
-        //creazione nuova chat
-        int part;
-        if(intrequire(&part,MAX_PART,"numero di partecipanti") != 0){
+    while(1){
+        op = -1;
+        resp = -1;
+        if( operationrequire(&op,option,3) != 0){ //funzione che chiede all'utente di scegliere un'opzione fra quelle elencate
+            printf("errore nella richiesta di un'operazione fase principasle \n");
+            close(sock);
+            exit(EXIT_FAILURE);
+        }
+        //invio operazione da eseguire al server
+        if( send_encrypted_int(sock,op,1,client_tx) != 0){
             printf("errore invio operazioen fase principale \n");
             close(sock);
             exit(EXIT_FAILURE);
         }
-        if(send_encrypted_int(sock,part,snprintf(NULL,0,"%d",MAX_PART),client_tx) != 0){
-            printf("errore invio operazioen fase principale \n");
-            close(sock);
-            exit(EXIT_FAILURE);
+        if(op == 0){
+            //creazione nuova chat
+            int part;
+            if(intrequire(&part,MAX_PART,1,"numero di partecipanti") != 0){
+                printf("errore invio operazioen fase principale \n");
+                close(sock);
+                exit(EXIT_FAILURE);
+            }
+            if(send_encrypted_int(sock,part,snprintf(NULL,0,"%d",MAX_PART),client_tx) != 0){
+                printf("errore invio operazioen fase principale \n");
+                close(sock);
+                exit(EXIT_FAILURE);
+            }
+            // inviamo i nomi dei partecipanti
+            int i = 1;
+            while( i<part ){
+                resp = -1;
+                // allocazione di memoria per l'userrname
+                if((username = (char*)malloc(MAX_ID * sizeof(char))) == NULL){
+                    perror("error to malloc for partecipante");
+                    exit(EXIT_FAILURE);
+                }
+                //richiesta username
+                if(stringrequire(username,MAX_ID,"partecipante",4)!=0){
+                    printf("errore nella richiesta del partecipante \n");
+                    close(sock);
+                    exit(EXIT_FAILURE);
+                }
+                printf("%s \n",username);
+                if(send_encrypted_data(sock,(const unsigned char*)username, MAX_ID, client_tx) != 0){
+                    printf("errore invio partecipante \n");
+                    close(sock);
+                    exit(EXIT_FAILURE);
+                }
+                //aspettiamo la risposta del server
+                if(receive_encrypted_int(sock,&resp,1,client_rx) != 0){
+                    fprintf(stderr,"Errore impossibile ricevere la risposta dal server\n");
+                    close(sock);
+                    exit(EXIT_FAILURE);
+                }
+                printf("risposta del server: %d\n",resp);
+                if(resp == 0){
+                    i++;
+                }
+                free(username);
+            }
+            // inviamo chat_id
+            resp = -1;
+            char* temp;
+            while(resp != 0){
+                resp = -1;
+                // allocazione di memoria per chat_id
+                if((temp = (char*)malloc(MAX_CHATID * sizeof(char))) == NULL){
+                    perror("error to malloc for chat-id");
+                    exit(EXIT_FAILURE);
+                }
+                //richiesta username
+                if(stringrequire(temp,MAX_CHATID,"nome chat",1)!=0){
+                    printf("errore nella richiesta del chat_id \n");
+                    close(sock);
+                    exit(EXIT_FAILURE);
+                }
+                printf("chat_id: %s \n",temp);
+                if(send_encrypted_data(sock,(const unsigned char*)temp, MAX_ID, client_tx) != 0){
+                    printf("errore invio chat_id \n");
+                    close(sock);
+                    exit(EXIT_FAILURE);
+                }
+                //aspettiamo la risposta del server
+                if(receive_encrypted_int(sock,&resp,1,client_rx) != 0){
+                    fprintf(stderr,"Errore impossibile ricevere la risposta dal server\n");
+                    close(sock);
+                    exit(EXIT_FAILURE);
+                }
+                printf("risposta del server: %d\n",resp);
+                free(temp);
+            }
+            printf("chat creata\n");
+        } else {
+            if(stampChat() != 0){
+                fprintf(stderr,"Errore imposibile stampare le chat atttive\n");
+                close(sock);
+                exit(EXIT_FAILURE);
+            }
         }
     }
 
@@ -326,6 +400,46 @@ int ipValidate(const char *ipAddress) {
     struct sockaddr_in sa;
     if(inet_pton(AF_INET, ipAddress, &(sa.sin_addr))!=1){
         return 1;
+    }
+    return 0;
+}
+
+int stampChat(){
+    int resposte = 0;
+    char chat_id[MAX_CHATID];
+    int numpart;
+    char partecipante[MAX_ID];
+    //riceviamo la disponibilità di una nuova chat
+    if(receive_encrypted_int(sock,&resposte,1,client_tx) != 0){
+        fprintf(stderr,"Errore impossibile ricevere ripsota lato server");
+        return 1;
+    }
+    while(resposte == 0){
+        // ricezione del chat id
+        if(receive_encrypted_data(sock,(unsigned char*)chat_id,sizeof(chat_id),client_tx) != 0){
+            fprintf(stderr,"Errore impossibile ricevere chat_id");
+            return 1;
+        }
+        // ricezione del numero dei partecipanti
+        if(receive_encrypted_int(sock,&numpart,snprintf(NULL,0,"%d",MAX_PART),client_tx) != 0){
+            fprintf(stderr,"Errore impossibile ricevere il numero dei partecipant\n");
+            return 1;
+        }
+        // stampiamo la chat su schermo
+        printf("%s (%d): \t",chat_id,numpart);
+        for(int i = 0;i<numpart-1;i++){
+            if(receive_encrypted_data(sock,(unsigned char*)partecipante,sizeof(partecipante),client_tx) != 0){
+                fprintf(stderr,"Errore impossible recievere partecipante\n");
+                return 1;
+            }
+            printf(" %s",partecipante);
+        }
+        printf("\n");
+        //riceviamo risposta se ci sono ancora righe da stampare
+        if(receive_encrypted_int(sock,&resposte,1,client_tx) != 0){
+            fprintf(stderr,"Errore impossibile ricevere chat_id");
+            return 1;
+        }
     }
     return 0;
 }

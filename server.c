@@ -1,10 +1,13 @@
 #include "server.h"
 
+
 int serverSocket; // descrittore della socket lato server
-HashTable* tableUser;
 pthread_mutex_t writecredential;
-// Lista delle chat
-Listachats chatlist;
+pthread_mutex_t writechat;
+//database
+HashNode* utenteTable;
+HashNode* chatTable;
+
 
 
 int main(int argc, char **argv){
@@ -35,8 +38,8 @@ int main(int argc, char **argv){
     }
 
     // inizializzazione del file credenziali e della struttura dati tableuser
-    if(initCredential() != 0){
-        fprintf(stderr,"Errore: impossibile inizializzare il file contenente le credenziali utente\n");
+    if(initDataBase() != 0){
+        fprintf(stderr,"Errore: impossibile inizializzare i database\n");
         closeServer();
         exit(EXIT_FAILURE);
     }
@@ -210,233 +213,6 @@ int initCrypto(){
     return 0;
 }
 
-
-/* La funzione inizializza il mutex per scrivere sul file credenziali e inizializza questo file cioè fa una copia di quello precedentemente salvato e lo riscrive sull'originale mantenendo solo le righe valide */
-int initCredential(){
-        // creazione di un mutex per la scrittura sul file credenziali
-    if( pthread_mutex_init(&(writecredential),NULL) != 0){
-        perror("Errore nell'inizializzazione del mutex per il file credenziali");
-        return 1;
-    }
-    // creazione della struttura dati per contenere gli username e i seek dell'utente
-    tableUser = initializeHashTable();
-    if(tableUser == NULL){
-        fprintf(stderr,"Errore, impossibile creare la hash table\n");
-        return 1;
-    }
-    //apertura file originale
-    FILE *originalfile = fopen(CREDPATH,"r+"); //apertura del file in RDWR all'inizio
-    if(originalfile == NULL){
-        //il file con le credenziali non esiste e lo crea
-        originalfile = fopen(CREDPATH,"w");
-        fclose(originalfile);
-        return 0;
-    }
-    //crea il duplicato
-    char pathtemp[strlen(CREDPATH)+strlen("temp")+1];
-    strcpy(pathtemp,"temp");
-    strcat(pathtemp,CREDPATH);
-    FILE *dupfile = fopen(pathtemp,"w+"); //come prima ma viene anche troncato
-    if(dupfile == NULL){
-        fprintf(stderr,"Errore: non e' stato possibile aprire il file duplicato delle credenziali \n");
-        fclose(originalfile);
-        return 1;
-    }
-    int temp;
-    while((temp = fgetc(originalfile)) != EOF){
-        fputc(temp,dupfile);
-    }
-    // spostiamo il seek del dupfile all'inizio del file
-    fseek(dupfile, 0, SEEK_SET);
-    //chiudiamo il file orginale per riaprlirlo troncato
-    fclose(originalfile);
-    originalfile = fopen(CREDPATH,"w+");
-    if(originalfile == NULL){
-        fprintf(stderr,"Errore: non e' stato possibile aprire il file contenente le credenziali \n");
-        fclose(dupfile);
-        return 1;
-    }
-    // riscrive nel file originale solo le credenziali valide
-    Utente user;
-    char buffer[1+1+MAX_ID+1+ENC_PSWD+1+1];
-    // Leggi ogni riga dal file duplicato
-    while (fgets(buffer, sizeof(buffer), dupfile) != NULL) {
-        // Verifica il primo carattere
-        if (buffer[0] == '1') { // Se il primo carattere è '1'
-            // Prendi il seek del file nel punto in cui è scritto l'utente
-            user.pos = ftell(originalfile);
-            // copia la riga nel file originale
-            fputs(buffer, originalfile);
-            // prendi l'username dalla stringa appena letta
-            if(sscanf(&(buffer[2]),"%s[^ ]",user.username) != 1){ // -------------------------------------------------------
-                fprintf(stderr,"Errore: impossibile leggere username");
-                return 1;
-            }
-            //inserisci l'utente nella tabella hash
-            if(insertIntoHashTable(tableUser,user) != 0){
-                fprintf(stderr,"Errore: impossibile inserire elemento nella tabella hash");
-                return 1;
-            }
-        }
-        // Altrimenti, se è '0', la riga viene saltata
-    }
-    // Chiude entrambi i file
-    fclose(dupfile);
-    fclose(originalfile);
-
-    //per sicurezza viene eliminato il file temporaneo
-    if(remove(pathtemp) != 0){
-        perror("Errore, impossibile eliminare il file temporaneo");
-        return 1;
-    }
-    return 0;
-}
-
-// Funzione per inizializzare la struttura leggendo i file nella cartella
-int inizializzaChatFiles(FileChat** listaChat) {
-    //inizializziamo la lista chat
-    &chatlist = malloc(sizeof(Listachats));
-    if(&chatlist == NULL){
-        perror("Errore impossibile inizializzare la lista delle chat");
-        return 1;
-    }
-    chatlist.head = NULL;
-    if(pthread_mutex_init(&(chatlist.add)) != 0){
-        perror("Impossibile inizializzare mutex lista chat");
-        return 1;
-    }
-    DIR* dir;
-    struct dirent* entry;
-
-    // Verifica se la directory "Chats" esiste, altrimenti creala
-    if (mkdir(CHAT_FOLDER, 0777) == -1 && errno != EEXIST) {
-        perror("Errore nella creazione della directory delle chat");
-        return 1;
-    }
-
-    // Apri la directory delle chat
-    dir = opendir(CHAT_FOLDER);
-    if (dir == NULL) {
-        perror("Errore nell'apertura della directory delle chat");
-        return 1;
-    }
-
-    // Leggi ogni file nella directory
-    while ((entry = readdir(dir)) != NULL) {
-        if (entry->d_type == DT_REG) {
-            // Costruisci il nome del file
-            char nomeFile[strlen(entry->d_name) + 1];
-            strcpy(nomeFile, entry->d_name);
-
-            // Crea e aggiungi la nuova chat alla lista
-            addChat(nomeFile);
-        }
-    }
-
-    // Chiudi la directory
-    closedir(dir);
-
-    return 0;
-}
-
-// Funzione per aggiungere una nuova chat alla lista
-int addChat(const char* nomeChat) {
-    // Alloca memoria per la nuova chat
-    FileChat* newChat = malloc(sizeof(FileChat));
-    // Verifica se l'allocazione di memoria è avvenuta con successo
-    if (newChat == NULL) {
-        perror("Errore nell'allocazione di memoria per la nuova chat");
-        return -1;  // Indica un errore
-    }
-    // Costruisci il nome del file
-    sprintf(newChat->chat, "%s/%s", CHAT_FOLDER, nomeChat);
-    // Inizializza il mutex della nuova chat
-    if (pthread_mutex_init(&newChat->write, NULL) != 0) {
-        perror("Errore nell'inizializzazione del mutex per la nuova chat");
-        free(newChat);  // Libera la memoria allocata
-        return -1;  // Indica un errore
-    }
-    // Imposta il puntatore al prossimo elemento a NULL
-    newChat->next = NULL;
-    // Aggiungi la nuova chat alla lista
-    //blocchiamo il mutex scrittura nella lista
-    if(pthread_mutex_lock(&(chatlist.add)) != 0){
-        perror("Errore impossibile bloccare mutex add chatlist");
-        return 1;
-    }
-    //aggiungiamo il nodo alla fine della lista
-    if(chatlist.head == NULL){
-        chatlist.head = newChat;
-    } else {
-        FileChat* temp = chatlist.head;
-        while(temp->next != NULL) {
-            temp = temp->next;
-        }
-        temp->next = newChat;
-    }
-    return 0;  // Indica il successo
-}
-
-// Funzione per trovare una chat nella lista dato il nome del file
-FileChat* findChat(const char* nomeChat) {
-    FileChat* current = chatlist.head;
-    // Cerca la chat nella lista
-    while (current != NULL) {
-        if (strcmp(current->chat, nomeChat) == 0) {
-            // La chat è stata trovata: restituisci un puntatore alla struttura
-            return current;
-        }
-        current = current->next;
-    }
-    // La chat non è stata trovata
-    return NULL;
-}
-
-
-// Funzione per rimuovere una chat dalla lista e deallocare la memoria
-int rimuoviChat(const char* nomeChat) {
-    FileChat* prev = NULL;
-    FileChat* current = chatlist.head;
-    // Cerca la chat nella lista
-    while (current != NULL) {
-        if (strcmp(current->chat, nomeChat) == 0) {
-            // Trovato: rimuovi la chat dalla lista
-            if (prev != NULL) {
-                prev->next = current->next;
-            } else {
-                *listaChat = current->next;
-            }
-            // Chiudi e distruggi il mutex
-            pthread_mutex_destroy(&current->write);
-            // Libera la memoria della chat
-            free(current);
-            return 0;  // Indica il successo
-        }
-        prev = current;
-        current = current->next;
-    }
-    // La chat non è stata trovata
-    return -1;  // Indica che la chat non è stata trovata
-}
-
-
-
-// Inizializza la tabella hash
-HashTable* initializeHashTable() {
-    HashTable* table = (HashTable*)malloc(TABLE_SIZE * sizeof(HashTable));
-    for (int i = 0; i < TABLE_SIZE; i++) {
-        // per correttezza inizializziamo a null tutti i puntatori alle teste delle liste
-        table[i].head = NULL;
-        //inizializziamo il muetx per la scrittura sulla lista
-        if(pthread_mutex_init(&(table[i].mutex),NULL) != 0){
-            perror("Errore nell'inizializzazione dei mutex nella tabella hash");
-            return NULL;
-        }
-    }
-    return table;
-}
-
-
 //funzione main dei thread
 void *mainThread(void *clientSocket) {
 
@@ -602,43 +378,7 @@ int authentication_client(char* user, int op, unsigned char* server_rx,unsigned 
 
     return 0;
 }
-
-// funzione per registrare l'utente nel file credenziali e nella struttra dati scelta
-int regUser(Utente user, char* hashpassword){
-    //apriamo il file credenziali
-    FILE* file = fopen(CREDPATH,"a");
-    if(file == NULL){
-        fprintf(stderr,"Impossibile aprire il file credenziali\n");
-        return 1;
-    }
-    // prendiamo il mutex per scrivere sul file
-    if(pthread_mutex_lock(&writecredential) != 0){
-        perror("Errore: imposibile acquisire il mutex per scrivere sul file credenziali");
-        fclose(file);
-        return 1;
-    }
-    // inseriamo seek nel nuovo nodo
-    user.pos = ftell(file);
-    // scriviamo il nuovo utente sul file
-    fprintf(file,"%d %s %s\n",1,user.username,hashpassword);
-
-    //rilasciamo il mutex per il file 
-    if(pthread_mutex_unlock(&writecredential) != 0){
-        perror("Errore: imposibile rilasciare il mutex per scrivere sul file credenziali");
-        fclose(file);
-        return 1;
-    }
-    // inseriamo il nuovo nodo nella tabella
-    if(insertIntoHashTable(tableUser,user) != 0){
-        fprintf(stderr,"Errore: impossibile inserire il nuovo utente nella tabella hash\n");
-        fclose(file);
-        return 1;
-    }
-
-    fclose(file);
-    return 0;
-}
-
+/*
 // fuznione che preleva la password salvata sul file credenziali
 char* PswdSaved(Utente user){
     //apriamo il file credenziali
@@ -667,202 +407,369 @@ char* PswdSaved(Utente user){
     fclose(file);
     return password;
 }
+*/
+// parte nuova
 
 
+// la funzione inizializza le due hashtable e i due file di archiviazione di credenziali e chat  creando delle tabelle vuote e eliminando dai file le righe invalidate
+int initDataBase(){
+    /* Parte istanziata nell'address space */
+    //instanziamo spazio per le tabelle hash
+    utenteTable = (HashNode*)malloc(sizeof(HashNode)*USER_HASH_SIZE);
+    if(utenteTable == NULL){
+        fprintf(stderr,"Errore malloc utenteTable\n");
+        return 1;
+    }
+    chatTable = (HashNode*)malloc(sizeof(HashNode)*CHAT_HASH_SIZE);
+    if(chatTable == NULL){
+        fprintf(stderr,"Errore malloc charTable\n");
+        free(utenteTable);
+        return 1;
+    }
+    
+    //inizializziamo ogni riga delle tabelle a null
+    for(int i=0;i<USER_HASH_SIZE;i++){
+        utenteTable[i].head = NULL;
+        if (pthread_mutex_init(&(utenteTable[i].modify), NULL) != 0) {
+        fprintf(stderr, "Errore nell'inizializzazione dei mutex in Hashtable initialize\n");
+        return 1;
+        }
+    }
+    for(int i=0;i<CHAT_HASH_SIZE;i++){
+        chatTable[i].head = NULL;
+        if (pthread_mutex_init(&(chatTable[i].modify), NULL) != 0) {
+        fprintf(stderr, "Errore nell'inizializzazione dei mutex in Hashtable initialize\n");
+        return 1;
+        }
+    }
 
-// Funzione hash basata sull'username per l'indicizzazione delle strutture utenti
-// funzione di esempio (se avessi utilizzato semplicemente le lettere dell'alfabeto sarei stato bloccato a 21 liste)
-unsigned int hashFunction(const char* username) {
+    /* Parte su File*/
+    // creazione di un mutex per la scrittura sul file credenziali
+    if( pthread_mutex_init(&(writecredential),NULL) != 0){
+        perror("Errore nell'inizializzazione del mutex per il file credenziali");
+        return 1;
+    }
+    if( pthread_mutex_init(&(writechat),NULL) != 0){
+        perror("Errore nell'inizializzazione del mutex per il file chat");
+        return 1;
+    }
+    // inizializzazione del file credenziali
+    while(initFile(FILECRED) != 0){
+        fprintf(stderr,"Errore nell'inizializzazione del file credenziali\n");
+        return 1;
+    }
+    if(initFile(FILECHAT) != 0){
+        fprintf(stderr,"Errore impossibile inizializzare il file delle chat\n");
+        return 1;
+    }
+    return 0;
+}
+
+// Funzione hash per la gestione degli indici per le tabelle
+unsigned int hash_function(char *str, int hash_size) {
     unsigned int hash = 0;
-    for (int i = 0; username[i] != '\0'; i++) {
-        hash = hash * 31 + username[i];
+    while (*str) {
+        hash = (hash * 31) + (*str++);
     }
-    return hash % TABLE_SIZE;
+    return hash % hash_size;
 }
 
-// Inserisce un elemento nella tabella hash
-int insertIntoHashTable(HashTable* table, Utente data) {
-    //creazione di un nuovo nodo utente
-    Utente *newUser = malloc(sizeof(Utente));
-    if(newUser == NULL){
-        perror("Errore malloc creazione nuono utente");
-        return 1;
-    }
-    //copia dei dati
-    strcpy(newUser->username,data.username);
-    newUser->pos=data.pos;
-    //troviamo in quale lista deve essere inserito
-    unsigned int index = hashFunction(newUser->username);
-    //blocchiamo il mutex per la lista
-    if(pthread_mutex_lock(&(table[index].mutex)) != 0){
-        perror("Errore impossibile bloccare il mutex per scrivere nella lista");
-        return 1;
-    }
-    // inserimento in testa alla lista
-    newUser->next = table[index].head;
-    table[index].head = newUser;
-    //sblocchiamo il mutex
-    if(pthread_mutex_unlock(&(table[index].mutex)) != 0){
-        perror("Errore impossibile sbloccare il mutex per scrivere nella lista");
-        return 1;
-    }
-
-    return 0;
+// Funzione di confronto per la struttura Utente
+int compareUtente(const void *key, const void *node) {
+    return strcmp((const char *)key, ((const struct Utente *)node)->username);
 }
 
-// Cerca un elemento nella tabella hash [DA MODIFICARE]
-Utente* searchInHashTable(HashTable* table, const char* username) {
-    unsigned int index = hashFunction(username);
-    Utente* current = table[index].head;
+// Funzione di confronto per la struttura Chat
+int compareChat(const void *key, const void *node) {
+    return strcmp((const char *)key, ((const struct Chat *)node)->id_chat);
+}
 
-    while (current != NULL) {
-        if (strcmp(current->username, username) == 0) {
-            return current;
+// Funzione generica per aggiungere un nodo alla tabella hash
+int addNode(HashNode *hashTable, char *key, void *data, int hash_size, size_t structSize) {
+    // troviamo indice per la tabella in cui inserire il nuovo nodo
+    unsigned int i = hash_function(key, hash_size);
+
+    // Creazione del nuovo nodo
+    void *newNode = malloc(structSize);
+    if (newNode == NULL) {
+        fprintf(stderr, "Errore malloc per il nuovo nodo\n");
+        return 1;
+    }
+
+    // Inizializzazione del nuovo nodo con i dati forniti
+    memcpy(newNode, data, structSize);
+
+    //aggiungiamo il nodo nella lista corretta
+    if(hashTable[i].head == NULL){
+        // la lista è vuota
+        //blocchiamo la scrittura sulla lista
+        if(pthread_mutex_lock(&(hashTable[i].modify)) != 0){
+            fprintf(stderr,"Errore impossibile bloccare la scrittura sulla lista\n");
+            free(newNode);
+            return 1;
         }
-        current = current->next;
-    }
-
-    return NULL; // Elemento non trovato
-}
-
-// Funzione che rimuove un elemento dalla tabella hash
-int removeFromHashTable(HashTable* table, const char* username) {
-    unsigned int index = hashFunction(username);
-    Utente* current = table[index].head;
-    Utente* prev = NULL;
-
-    //blocco del mutex per la lista
-    if(pthread_mutex_lock(&(table[index].mutex)) != 0){
-        perror("Errore: imposibile acquisire il mutex per eliminare il nodo dalla lista");
-        return 1;
-    }
-
-    while (current != NULL) {
-        if (strcmp(current->username, username) == 0) {
-            if (prev == NULL) {
-                // Il nodo da rimuovere è il primo nella lista
-                table[index].head = current->next;
-            } else {
-                // Il nodo da rimuovere non è il primo nella lista
-                prev->next = current->next;
-            }
-            
-            // sblocco il mutex
-            if(pthread_mutex_unlock(&(table[index].mutex)) != 0){
-                perror("Errore: impossibile restituire il mutex per eliminare il nodo dalla lista");
-                return 1;
-            }
-
-            free(current); // Libera la memoria della struttura Utente
-            return 0;
+        //aggiungiamo il nodo in testa
+        hashTable[i].head = newNode;
+        //rilasciamo la scrittura sulla lista
+        if(pthread_mutex_unlock(&(hashTable[i].modify)) != 0){
+            fprintf(stderr,"Errore impossibile sbloccare la scrittura sulla lista\n");
+            return 1;
         }
-        prev = current;
-        current = current->next;
-    }
-
-    return 1;
-}
-
-
-
-
-int deleteUser(Utente user){   
-    //apriamo il file in scrittura
-    FILE* file = fopen(CREDPATH,"r+");
-    if(file == NULL){
-        fprintf(stderr,"Errore impossibile aprire il file credenziali\n");
-        return 1;
-    }
-    //spostiamo il seek
-    if(fseek(file,user.pos,SEEK_SET) != 0){
-        perror("Errore posizionamento nel file durante l'eliminazione");
-        fclose(file);
-        return 1;
-    }
-    //blocchiamo la scrittura sul file
-    if(pthread_mutex_lock(&writecredential) != 0){
-        perror("Errore: imposibile acquisire il mutex per scrivere sul file credenziali");
-        fclose(file);
-        return 1;
-    }
-    //mettiamo ad 1 il bit validate
-    if(fprintf(file,"0") < 0){
-        fprintf(stderr,"Errore nella scrittura sul file credenziali\n");
-        return 1;
-    }
-    //rilasciamo la scrittura sul file
-    if(pthread_mutex_unlock(&writecredential) != 0){
-        perror("Errore: imposibile rilasciare il mutex per scrivere sul file credenziali");
-        fclose(file);
-        return 1;
-    }
-    //eliminiamo il nodo dalla tabella hash
-    if(removeFromHashTable(tableUser,user.username) != 0){
-        fprintf(stderr,"Errore impossibile rimuovere il nodo dalla tabella hash\n");
-        return 1;
-    }
-
-    return 0;
-
-}
-
-// funzione che serve per creare il file della chat univoco per ogni coppia di utenti
-int findNameChat(char* chatName, char* mittente, char* destinatario){
-    if(strcmp(mittente,destinatario) >= 0){
-        strcpy(CHAT_FOLDER);
-        strcat("/");
-        strcat(chatName,mittente);
-        strcat(chatName,"_");
-        strcat(chatName,destinatario);
-        strcat(chatname,".txt");
     } else {
-        strcpy(CHAT_FOLDER);
-        strcpy("/");
-        strcat(chatName,destinatario);
-        strcat(chatName,"_");
-        strcat(chatName,mittente);
-        strcat(chatname,".txt");
-    }
-    return 0;
-}
-
-// Funzione per ottenere un puntatore a una chat dato il nome del file
-FileChat* getChatByFileName(const char* nomeFile) {
-    for (int i = 0; i < MAX_CHAT_FILES; ++i) {
-        if (strcmp(chatFiles[i].nomeFile, nomeFile) == 0) {
-            return &chatFiles[i];
+        // la lista non è vuota
+        //scorriamo la lista fino ad arrivare alla fine
+        void *current = hashTable->head;
+        while (*((void **)(&current->next)) != NULL) {
+            current = *((void **)(&current->next));
         }
-    }
-    fprintf(stderr, "Errore: chat non trovata per il file %s\n", nomeFile);
-    return NULL;
-}
 
-// questa funzione crea una cartella per quel determinato utente e lo
-int writeMessage(char* mittente, Messaggio message){
-    // creiamo il nome del file dalla chat fra mittente e destinatario
-    char chatName[strlen(CHAT_FOLDER)+1+strlen(mittente)+1+strlen(message.destinatario)+strlen(".txt")+1];
-    findNameChat(chatName, mittente, message.destinatario);
-
-    FileChat* file;
-    //cerchiamo il file nella lista
-    if((file=findChat(chatName)) == NULL){
-        // se non esiste lo creiamo
-        if(addChat(chatName) != 0){
-        fprintf(stderr,"Errore impossibile aggiungere una nuova chat alla lista\n");
-        return 1;
+        //blocchiamo la scrittura sull'ultimo puntatore
+        if(pthread_mutex_lock(&(current->modify)) != 0){
+            fprintf(stderr,"Errore impossibile bloccare la scrittura sull'ultimo nodo\n");
+            free(newNode);
+            return 1;
         }
-        //prendiamo il suo puntatore
-        if((file=findChat(chatname)) == NULL){
-            fprintf(stderr,"Errore impossibile creare un nuovo file chat\n");
+        // Inseriamo il nodo dopo l'ultimo
+        *((void **)(&current->next)) = newNode;
+
+        //sblocchiamo la scrittura sull'ultimo nodo
+        if(pthread_mutex_unlock(&(current->modify)) != 0){
+            fprintf(stderr,"Errore impossibile sbloccare la scrittura sull'ultimo nodo\n");
             return 1;
         }
     }
-    //blocchiamo la scrittura sul file
-    if(pthread_mutex_lock(&(file->write)) != 0){
-        perror("Errore impossibile bloccare il muutex di scrittura sul file");
+
+    return 0;
+}
+
+// Funzione generica per cercare un nodo nella tabella hash restituisce 0 se lha trovato 1 se c'`e stato errore e 2 se non è stato trovato
+int findNode(HashNode *hashTable, char *key, int hash_size, int (*compare)(const void *, const void *), void* node) {
+    //troviamo la riga della tabella
+    unsigned int i = hash_function(key, hash_size);
+
+    // Scorrimento della lista collegata in quella posizione della tabella hash
+    if(pthread_mutex_lock(&(hashTable[i].modify)) != 0){
+        fprintf(stderr,"Errore impossibile prelevare mutex per prendere la testa della lista\n");
         return 1;
     }
-    //scriviamo il messaggio alla fine del file con il time stamp
+    void *current = (void*)hashTable[i].head;
+    if(pthread_mutex_unlock(&(hashTable[i].modify)) != 0){
+        fprintf(stderr,"Errore impossibile rilasciare mutex dopo aver preso la testa della lista\n");
+        return 1;
+    }
+    void *prev = NULL;
+    while (current != NULL) {
+        // Confronto della chiave per trovare il nodo desiderato
+        if (compare(key, current) == 0) {
+            node = current;
+            return 0;
+        }
+        // Passiamo al prossimo nodo nella lista
+        // prima prendiamo il mutex per ottenere un campo next valido
+        if(pthread_mutex_lock(&(current->modify)) != 0){
+            fprintf(stderr,"Errore impossibile prelevare mutex per passare al nodo successivo\n");
+            return 1;
+        }
+        prev = current;
+        current = prev->next;
+        if(pthread_mutex_unlock(&(prev->modify)) != 0){
+            fprintf(stderr,"Errore impossibile rilasciare il mutex dopo essere passati al nodo successivo\n");
+            return 1;
+        }
+    }
+    //non è stato trovato il nodo all'interno della struttura dati allora bisogna cercarlo nelle credenziali se un nodo utente
+    return 2; // Nodo non trovato
+}
 
+// Funzione generica per eliminare un nodo dalla tabella hash
+int deleteNode(HashNode *hashTable, char *key, int hash_size, int (*compare)(const void *, const void *)) {
+    //troviamo indice tabella
+    unsigned int i = hash_function(key, hash_size);
 
+    // Scorrimento della lista collegata in quella posizione della tabella hash
+    if(pthread_mutex_lock(&(hashTable[i].modify)) != 0){
+        fprintf(stderr,"Errore impossibile prelevare mutex per prendere la testa della lista\n");
+        return 1;
+    }
+    void *current = (void*)hashTable[i].head;
+    if(pthread_mutex_unlock(&(hashTable[i].modify)) != 0){
+        fprintf(stderr,"Errore impossibile rilasciare mutex dopo aver preso la testa della lista\n");
+        return 1;
+    }
+    void *prev = NULL;
+
+    // Scorrimento della lista collegata in quella posizione della tabella hash
+    while (current != NULL) {
+        // Confronto della chiave per trovare il nodo desiderato
+        if (compare(key, current) == 0) {
+            // blocchiamo la lettura scrittura sul nodo da eliminare
+            if(pthread_mutex_lock(&(current->modify)) != 0){
+                fprintf(stderr,"Errore imposibile bloccare mutex del nodo eliminato");
+                return 1;
+            }
+            if (prev == NULL) {
+                // Se il nodo da eliminare è il primo, aggiorniamo il puntatore alla testa
+                //blocchiamo mutex testa lista
+                if(pthread_mutex_lock(&(hashTable[i].modify)) != 0){
+                    fprintf(stderr,"Errore impossibile bloccare mutex per cambio nodo in testa\n");
+                    return 1;
+                }
+                hashTable[i].head = current->next;
+                if(pthread_mutex_unlock(&(hashTable[i].modify)) != 0){
+                    fprintf(stderr,"Errore impossibile sbloccare mutex dopo cambio nodo in testa\n");
+                    return 1;
+                }
+            } else {
+                // Altrimenti, eliminiamo il nodo aggiornando il puntatore del nodo precedente
+                if(pthread_mutex_lock(&(prev->modify)) != 0){
+                    fprintf(stderr,"Errore impossibile bloccare mutex per eliminazione nodo\n");
+                    return 1;
+                }
+                prev->next = current->next;
+                if(pthread_mutex_unlock(&(prev->modify)) != 0){
+                    fprintf(stderr,"Errore impossibile sbloccare mutex dopo eliminazione nodo\n");
+                    return 1;
+                }
+            }
+            free(current); // Liberiamo la memoria del nodo eliminato
+            return 0;
+        }
+        // Passiamo al prossimo nodo nella lista
+        prev = current;
+        current = prev->next;
+    }
+    return 1; // Nodo non trovato
+}
+
+// la funzione accetta il nome del file senza txt e lo inizializza se c'è un errore nel "travasare" i dati dal temporaneo all'originale ritorna 2
+int initFile(char* nomeFile){
+    //creo la stringa vera per aprire il file
+    char pathfile[strlen(nomeFile)+5];
+    strcpy(pathfile,nomeFile);
+    strcat(pathfile,".txt");
+    //apertura file originale
+    FILE *originalfile = fopen(pathfile,"r+"); //apertura del file in RDWR all'inizio
+    if(originalfile == NULL){
+        //il file non esiste e lo crea
+        originalfile = fopen(pathfile,"w");
+        fclose(originalfile);
+        return 0;
+    }
+    //crea il duplicato
+    char pathtemp[strlen(pathfile)+strlen("temp")+1];
+    strcpy(pathtemp,"temp");
+    strcat(pathtemp,pathfile);
+    FILE *dupfile = fopen(pathtemp,"w+"); //apertura in scrittura troncata 
+    if(dupfile == NULL){
+        fprintf(stderr,"Errore: non e' stato possibile aprire il file duplicato \n");
+        fclose(originalfile);
+        return 1;
+    }
+    int temp;
+    while((temp = fgetc(originalfile)) != EOF){
+        fputc(temp,dupfile);
+    }
+    // spostiamo il seek del dupfile all'inizio del file
+    fseek(dupfile, 0, SEEK_SET);
+    //chiudiamo il file orginale per riaprlirlo troncato
+    fclose(originalfile);
+    originalfile = fopen(pathfile,"w+");
+    if(originalfile == NULL){
+        fprintf(stderr,"Errore: non e' stato possibile aprire il file originale \n");
+        fclose(dupfile);
+        return 1;
+    }
+    // riscrive nel file originale solo le credenziali valide
+    // leggo il primo carattere di ogni riga
+    while ((temp = fgetc(dupfile)) != EOF) {
+        // Verifica il primo carattere
+        if (temp == '1') { // Se il primo carattere è '1'
+            // copia la riga nel file originale
+            fputc(temp,originalfile); // scriviamo il bit validate
+            while(((temp = fgetc(dupfile)) != '\n') || (temp == EOF)){
+                if(temp == EOF){
+                    fprintf(stderr,"Errore inizializzazione file esso verrà distrutto e ricreato perdendo tutti i dati\n");
+                    return 2;
+                }
+                fputc(temp,originalfile);
+            }
+            fputc(temp,originalfile); //scriviamo il carattere nuova riga
+        }
+        // Altrimenti, se è '0', la riga viene saltata
+        while(((temp = fgetc(dupfile)) != '\n') || (temp == EOF)){
+            if(temp == EOF){
+                fprintf(stderr,"Errore inizializzazione file esso verrà distrutto e ricreato perdendo tutti i dati\n");
+                return 2;
+            }
+        }
+    }
+    // Chiude entrambi i file
+    fclose(dupfile);
+    fclose(originalfile);
+    //per sicurezza viene eliminato il file temporaneo
+    if(remove(pathtemp) != 0){
+        perror("Errore, impossibile eliminare il file temporaneo");
+        return 1;
+    }
+    return 0;
+}
+
+int writeChat(char* id_chat, int num_part, char** part){
+    //blocca il mutex sul file chat
+    if(pthread_mutex_lock(&(writechat)) != 0){
+        perror("Errore impossibile bloccare mutex per scrivere nel file chat");
+        return 1;
+    }
+    // apriamo il file chat in scrittura
+    char pathfile[strlen(FILECHAT)+5];
+    strcpy(pathfile,FILECHAT);
+    strcat(pathfile,".txt");
+    FILE* file = fopen(pathfile,"a");
+    if(file == NULL){
+        fprintf(stderr,"Errore impossibile aprire il file in modalità append\n");
+        return 1;
+    }
+    //scriviamo la nuova riga sul file
+    fprintf(file,"1 %s %d",id_chat,num_part);
+    for(int i=0;i<num_part;i++){
+        fprintf(file," %s",part[i]);
+    }
+    fprintf(file,"\n");
+    fflush(stdout);
+    //rilasciamo il mutex
+    if(pthread_mutex_unlock(&(writechat)) != 0){
+        perror("Errore impossibile rilasciare il mutex per scrivere nel file chat");
+        return 1;
+    }
+    //chiudiamo il file
+    fclose(file);
+    return 0;
+}
+
+int writeCredential(char* username, char* password){
+    //blocchiamo il mutex del file credential
+    if(pthread_mutex_init(&(writecredential),NULL) != 0){
+        perror("Errore impossibile bloccare il mutex per la scrittura sul file credenziali");
+        return 1;
+    }
+    //apriamo il file credenziali
+    char pathfile[strlen(FILECRED)+5];
+    strcpy(pathfile,FILECRED);
+    strcat(pathfile,".txt");
+    FILE* file = fopen(pathfile,"a");
+    if(file == NULL){
+        fprintf(stderr,"Errore impossibile aprire il file in modalità append\n");
+        return 1;
+    }
+    //scriviamo la nuova riga sul file
+    fprintf(file,"1 %s %s\n",username,password);
+    fflush(stdout);
+    //sblocchiamo il mutex
+    if(pthread_mutex_unlock(&(writecredential)) != 0){
+        perror("Errore impossibile rilasciare il mutex per scrivere nel file credenziali");
+        return 1;
+    }
+    //chiudiamo il file
+    fclose(file);
+    return 0;
 }

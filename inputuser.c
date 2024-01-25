@@ -86,13 +86,15 @@ int stringrequire(char* string, size_t size, char* ogetto, int minchar){ // stri
 
     // Rimuove il carattere di nuova riga
     temp[strcspn(temp, "\n")] = '\0';
+    // codifica la stringa
+    codificaStringa(temp);
     // Copia la stringa dal buffer temporaneo a quello definitivo
     strncpy(string,temp,strlen(temp));
 
     return 0;
 }
 
-int intrequire(int *num, int max, char *oggetto) {
+int intrequire(int *num, int max, int min, char *oggetto) {
     int counter = 0;
     int validate = max;
     if(validate == 0){
@@ -111,7 +113,7 @@ int intrequire(int *num, int max, char *oggetto) {
             printf("Errore: impossibile allocare spazio per buffer di input\n");
             return 1;
         }
-        printf("Inserisci %s (massimo %d): \t", oggetto, max);
+        printf("Inserisci %s (massimo %d e minimo %d): \t", oggetto, max,min);
         if (fgets(buffer, counter + 2, stdin) == NULL) {
             printf("Errore: impossibile leggere da stdin\n");
             free(buffer);
@@ -139,8 +141,8 @@ int intrequire(int *num, int max, char *oggetto) {
                     printf("Input non valido. Inserisci un numero intero.\n");
                     validate = 1;
                 } else {
-                    if (*num < 0 || *num > max) {
-                        printf("Il numero deve essere compreso tra 0 e %d.\n", max);
+                    if (*num < min || *num > max) {
+                        printf("Il numero deve essere compreso tra %d e %d.\n", min, max);
                         validate = 1;
                     } else {
                         validate = 0;
@@ -152,3 +154,33 @@ int intrequire(int *num, int max, char *oggetto) {
     }
     return 0;
 }
+
+// Funzione per codificare spazi in underscores e newline in pipe '|'
+void codificaStringa(char *stringa) {
+    while (*stringa) {
+        if (*stringa == ' ') {
+            *stringa = '_';
+        } else if (*stringa == '\n') {
+            *stringa = '|';
+        }
+        stringa++;
+    }
+}
+
+// Funzione per decodificare underscores in spazi e pipe '|' in newline
+void decodificaStringa(char *stringa) {
+    while (*stringa) {
+        if (*stringa == '_') {
+            *stringa = ' ';
+        } else if (*stringa == '|') {
+            *stringa = '\n';
+        }
+        stringa++;
+    }
+}
+
+void codificaprintf(char* stringa){
+    decodificaStringa(stringa);
+    printf("%s",stringa);
+}
+

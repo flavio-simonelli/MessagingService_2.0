@@ -14,6 +14,9 @@
 #include <dirent.h>
 #include <errno.h>
 #include <semaphore.h>
+#include <sys/stat.h>
+#include <fcntl.h>
+
 
 // file inclusi
 #include "transfertsocket.h"
@@ -32,6 +35,7 @@
 // nomi file
 #define FILECHAT "logChats"
 #define FILECRED "logCred"
+#define CHAT_FOLDER "Chats/"
 
 //massimo numero di righe delle tabelle
 #define MAX_TABLE 100
@@ -53,11 +57,11 @@ typedef struct{
 } Chat;
 
 typedef struct{
-    char* mittente;
-    char* destinatario;
-    char* object;
-    char* text;
-    char* timestamp;
+    char mittente[MAX_ID]; //nome di chi ha scritto quel messaggio
+    char object[MAX_OBJECT]; //ogetto del testo
+    char text[MAX_TEXT]; //testo
+    char data[9]; //giorno di invio
+    char ora[6]; //orario di invio
 } Messaggio;
 
 typedef struct Node{
@@ -115,3 +119,31 @@ int regUtente(char *username, char *password);
 
 // funzione che preleva la password dal file credenziali
 int findPswd(long pos, char* password);
+
+// Funzione che aggiunge un nodo chat alla tabella hash
+// Parametri:
+// - chatid: puntatore alla stringa che rappresenta l'ID della chat
+// - pos: posizione nel file chat
+// Restituisce 0 in caso di successo, 1 in caso di errore durante l'allocazione di memoria
+int addChat(char* chatid, long pos);
+
+// Funzione che registra una nuova chat nel file chat e inserisce il nodo corrispondente nella tabella hash
+// Parametri:
+// - chat_id: puntatore alla stringa che rappresenta l'ID della chat
+// - numpart: numero di partecipanti alla chat
+// - part: array di puntatori alle stringhe che rappresentano i nomi dei partecipanti
+// Restituisce 0 in caso di successo, 1 in caso di errore durante l'apertura del file o l'allocazione di memoria
+int regChat(char* chat_id, int numpart, char part[][MAX_ID]);
+
+// Funzione che trova una chat nel file chat con un determinato chat_id e partecipanti specificati
+// Parametri:
+// - chat_id: puntatore alla stringa che rappresenta l'ID della chat
+// - part: array di puntatori alle stringhe che rappresentano i nomi dei partecipanti
+// - numpart: numero di partecipanti alla chat
+// Restituisce la posizione nel file se la chat viene trovata, -1 se non viene trovata, -2 in caso di errore
+long findChat(char* chat_id, char part[][MAX_ID], int numpart);
+
+
+int newChat();
+
+int printfChat(char* username, int socket, unsigned char* server_tx);

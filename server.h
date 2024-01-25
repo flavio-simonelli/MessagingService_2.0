@@ -18,16 +18,20 @@
 #include "transfertsocket.h"
 
 // VARIABILI D'AMBIENTE
-#define CREDPATH "credentials.txt"
+
 #define BACKLOG 10
-#define TABLE_SIZE 1000 //numero di esempio
+//massimi caratteri
 #define MAX_ID 20
 #define MAX_PSWD 20
 #define ENC_PSWD crypto_pwhash_STRBYTES
 #define MAX_OBJECT 20
 #define MAX_TEXT 200
-#define CHAT_FOLDER "Chats"
-
+#define MAX_ID_CHAT 10
+//database
+#define FILECRED "credentials"
+#define FILECHAT "chats"
+#define USER_HASH_SIZE 100
+#define CHAT_HASH_SIZE 50
 
 #define fflush(stdin) while(getchar() != '\n')
 
@@ -37,30 +41,30 @@
 typedef struct Utente{
     char username[MAX_ID];
     long pos;
+    pthread_mutex_t modify;
     struct Utente* next;
 } Utente;
 
-typedef struct {
-    Utente* head;
-    pthread_mutex_t mutex;
-} HashTable;
-
-typedef struct {
-    char destinatario[MAX_ID];
-    char ogetto[MAX_OBJECT];
-    char text[MAX_TEXT];
-} Messaggio;
-
-typedef struct FileChat{
-    char chat[5+1+MAX_ID+1+MAX_ID+4+1];
+typedef struct Chat{
+    char id_chat[MAX_ID_CHAT];
+    long pos;
     pthread_mutex_t write;
-    struct FileChat* next;
-} FileChat;
+    pthread_mutex_t modify;
+    struct Chat* next;
+} Chat;
 
-typedef struct{
-    FileChat* head;
-    pthread_mutex_t add;
-} Listachats;
+typedef struct HashNode{
+    void* head;
+    pthread_mutex_t modify;
+}HashNode;
+
+typedef struct {
+    int id_message;
+    char object[MAX_OBJECT];
+    char text[MAX_TEXT];
+    char data[11];
+    char ora[6];
+}Messaggio;
 
 
 
@@ -75,13 +79,9 @@ int ipValidate(const char *ipAddress);
 
 int initCrypto();
 
-int initCredential();
-
 int initSignal();
 
 void signalclose();
-
-HashTable* initializeHashTable();
 
 void closeServer();
 
@@ -91,20 +91,34 @@ void closeServer();
 
 int key_exchange(unsigned char* server_pk, unsigned char* server_sk, unsigned char* server_rx, unsigned char* server_tx, unsigned char* client_pk, int socket);
 //parte struttura dati utenti (hashtable)
-unsigned int hashFunction(const char* username);
 
-int insertIntoHashTable(HashTable* table, Utente data);
+int initDataBase();
 
-Utente* searchInHashTable(HashTable* table, const char* username);
+unsigned int hash_function(char *str, int hash_size);
 
-int removeFromHashTable(HashTable* table, const char* username);
+int compareUtente(const void *key, const void *node);
+
+int compareChat(const void *key, const void *node);
+
+int addNode(HashNode *hashTable, char *key, void *data, int hash_size, size_t structSize);
+
+void *findNode(HashNode *hashTable, char *key, int hash_size, int (*compare)(const void *, const void *));
+
+int deleteNode(HashNode *hashTable, char *key, int hash_size, int (*compare)(const void *, const void *));
+
+int initFile(char* nomeFile);
+
+int writeChat(char* id_chat, int num_part, char** part);
+
+int writeCredential(char* username, char* password);
+
 //parte autenticazione
 int authentication_client(char* user, int op, unsigned char* server_rx,unsigned char* server_tx,int socket);
 
 char* PswdSaved(Utente user);
 
-int regUser(Utente user, char* hashpassword);
 
-int deleteUser(Utente user);
 
 void *mainThread(void *clientSocket);
+
+// gestione chat
