@@ -33,7 +33,7 @@
 #define FILECHAT "logChats"
 #define FILECRED "logCred"
 
-//massimo numero di righe delle tabelle
+// massimo numero di righe delle tabelle
 #define MAX_TABLE 100
 
 struct semFile{
@@ -52,13 +52,6 @@ typedef struct{
     struct semFile sem;
 } Chat;
 
-typedef struct{
-    char* mittente;
-    char* destinatario;
-    char* object;
-    char* text;
-    char* timestamp;
-} Messaggio;
 
 typedef struct Node{
     void* content;
@@ -115,3 +108,14 @@ int regUtente(char *username, char *password);
 
 // funzione che preleva la password dal file credenziali
 int findPswd(long pos, char* password);
+
+void createNameChat(char str1[], char str2[], char risultato[]);
+
+int findChat(char* key);
+int regChat(char* chat_id);
+
+int invalidaMessaggio(char* nomeFile, char* timestamp);
+char* getCurrentTimestamp();
+int writeMessage(char* nomeFile, char* username, int socket, unsigned char* tx_key, unsigned char* rx_key);
+int sendChat(const char *filename, int socket, const unsigned char *tx_key);
+int initChat(char* nomeFile);

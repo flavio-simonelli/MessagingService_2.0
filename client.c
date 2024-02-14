@@ -109,34 +109,62 @@ int main(int argc, char** argv){
     }
 
     // fase principale
-    option[0] = "Nuova Chat";
-    option[1] = "Apri Chat";
-    option[2] = "Elimina Chat";
-    op = -1;
-    if( operationrequire(&op,option,3) != 0){ //funzione che chiede all'utente di scegliere un'opzione fra quelle elencate
-        printf("errore nella richiesta di un'operazione fase principasle \n");
-        close(sock);
-        exit(EXIT_FAILURE);
-    }
-    //invio operazione da eseguire al server
-    if( send_encrypted_int(sock,op,1,client_tx) != 0){
-        printf("errore invio operazioen fase principale \n");
-        close(sock);
-        exit(EXIT_FAILURE);
-    }
-    if(op == 0){
-        //creazione nuova chat
-        int part;
-        if(intrequire(&part,MAX_PART,"numero di partecipanti") != 0){
+    while(1){
+        option[0] = "Nuova Chat";
+        option[1] = "Apri Chat";
+        option[2] = "Elimina Chat";
+        op = -1;
+        if( operationrequire(&op,option,3) != 0){ //funzione che chiede all'utente di scegliere un'opzione fra quelle elencate
+            printf("errore nella richiesta di un'operazione fase principasle \n");
+            close(sock);
+            exit(EXIT_FAILURE);
+        }
+        //invio operazione da eseguire al server
+        if( send_encrypted_int(sock,op,1,client_tx) != 0){
             printf("errore invio operazioen fase principale \n");
             close(sock);
             exit(EXIT_FAILURE);
         }
-        if(send_encrypted_int(sock,part,snprintf(NULL,0,"%d",MAX_PART),client_tx) != 0){
-            printf("errore invio operazioen fase principale \n");
+        //invio destinatario
+        resp = -1;
+        while( resp != 0){
+                // allocazione di memoria per l'userrname
+            if((username = (char*)malloc(MAX_ID * sizeof(char))) == NULL){
+                perror("error to malloc for username");
+                exit(EXIT_FAILURE);
+            }
+            //richiesta username
+            if(stringrequire(username,MAX_ID,"destinatario",4)!=0){
+                printf("errore nella richiesta del destinatario \n");
+                close(sock);
+                exit(EXIT_FAILURE);
+            }
+            printf("%s \n",username);
+            if(send_encrypted_data(sock,(const unsigned char*)username, MAX_ID, client_tx) != 0){
+                printf("errore invio destinatario \n");
+                close(sock);
+                exit(EXIT_FAILURE);
+            }
+            //aspettiamo la risposta del server
+            if(receive_encrypted_int(sock,&resp,1,client_rx) != 0){
+                fprintf(stderr,"Errore impossibile ricevere la risposta dal server\n");
+                close(sock);
+                exit(EXIT_FAILURE);
+            }
+            printf("risposta del server: %d\n",resp);
+            free(username);
+        }
+        resp = -1;
+        //aspettiamo la risposta del server
+        if(receive_encrypted_int(sock,&resp,1,client_rx) != 0){
+            fprintf(stderr,"Errore impossibile ricevere la risposta dal server\n");
             close(sock);
             exit(EXIT_FAILURE);
         }
+        if(op != 2){
+            // apertura di una chat
+        }
+        //* Invio due volte il la conferma prima di aprire il file ed inviare i messaggi
     }
 
     return 0;

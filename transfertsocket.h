@@ -2,13 +2,18 @@
 #include <string.h>
 #include <ctype.h>
 #include <sodium.h>
-#ifdef _WIN32
-#include <winsock2.h>
-#include <iphlpapi.h>
-#else
 #include <arpa/inet.h>
 #include <ifaddrs.h>
-#endif
+
+
+#define MAX_TEXT 200
+
+typedef struct{
+    char* mittente;
+    char* object;
+    char* text;
+    char* timestamp;
+} Messaggio;
 
 int send_data(void *data, size_t size, int socket);
 int receive_data(void *data, size_t size, int socket);

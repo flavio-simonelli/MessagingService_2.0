@@ -352,6 +352,9 @@ void *mainThread(void *clientSocket) {
     }
 
     // Fase principale
+    char destinatario[MAX_ID];
+    char nomechat[MAX_ID*2];
+    Node* c;
     while(1){
         op = -1; // resettiamo il valore dell'operazione a default
         // riceviamo operazione da eseguire
@@ -361,24 +364,153 @@ void *mainThread(void *clientSocket) {
             pthread_exit(NULL);
         }
         printf("operazione scelta: %d\n",op);
+        // richiesta destinatario
+        resp = 1;
+        while(resp != 0){
+            //aspettiamo l'username dal client
+            if(receive_encrypted_data(socket,(unsigned char*)destinatario,MAX_ID,server_rx) != 0){
+                fprintf(stderr,"Errore impossibile ricevere username dal client\n");
+                close(socket);
+                pthread_exit(NULL);
+            }
+            printf("username ricevuto: %s\n",destinatario);
+            if(searchNode(userTable,destinatario,compareUtente) != NULL){
+                //utente trovato nella tabella hash
+                resp = 0;
+            } else if(findUtente(destinatario) == 0){
+                resp = 0;
+            }
+            //inviamo risposta al client
+            if(send_encrypted_int(socket,resp,1,server_tx) != 0){
+                fprintf(stderr,"Errore nell'invio della rispsota\n");
+                close(socket);
+                pthread_exit(NULL);
+            }
+        }
+        createNameChat(username,destinatario,nomechat);
+        printf("Nomechat richiesto: %s \n",nomechat);
+        resp = -1;
         if(op == 0){
             //creazione nuova chat
-            // richiesta numero di partecipanti
-            int numpart;
-            resp = -1;
-            while(resp != 0){
-                if(receive_encrypted_int(socket,&numpart,snprintf(NULL,0,"%d",MAX_PART),server_rx) != 0){ // attenzione il numero di partecipanti è indefinito!!!!! non riescoa  farlo funzionare
-                    fprintf(stderr,"Errore nel ricevere il numero di partecipanti\n");
+            printf("Creazione nuova chat\n");
+            // cerchiamo il file chat
+            if(searchNode(chatTable,nomechat,compareChat) != NULL){
+                //la chat esiste già
+                resp = 1; // la chat è già esistente
+                printf("la chat esiste già nella chattable\n");
+            } else if(findChat(nomechat) == 0){
+                // la chat è stata trovata nell'archivio ed è stata inserita nella tabella hash
+                resp = 1; // la chat è già esistente
+                printf("la chat è stata insertia nella chattable\n");
+            } else {
+                // creiamo la nuova chat
+                printf("iniziamo creazione\n");
+                if(regChat(nomechat) != 0){
+                    fprintf(stderr,"Errore nell'invio della rispsota\n");
                     close(socket);
                     pthread_exit(NULL);
                 }
-                printf("numero partecipanti: %d\n",numpart);
-                resp=0;
+                printf("creata\n");
+                resp = 0;
             }
         } else if(op == 1){
-            //apri chat esistente
+            // cerchiamo il file chat
+            if(searchNode(chatTable,nomechat,compareChat) != NULL){
+                //la chat esiste già
+                resp = 0; // chat trovata
+                printf("la chat esiste già nella chattable\n");
+                //utilizziamo C
+            } else if(findChat(nomechat) == 0){
+                // la chat è stata trovata nell'archivio ed è stata inserita nella tabella hash
+                resp = 0;
+                printf("la chat è stata inserita nella chattable\n");
+            } else {
+                resp = 1;
+            }
         } else if(op == 2){
             //elimina chat esistente
+        }
+        // inviamo risultato al client
+        if(send_encrypted_int(socket,resp,1,server_tx) != 0){
+            fprintf(stderr,"Errore nell'invio della rispsota\n");
+            close(socket);
+            pthread_exit(NULL);
+        }
+        if(resp == 0){ // significa che per ora è andata tutto bene ed esiste la chat
+            c = searchNode(chatTable,nomechat,compareChat);
+            if(c == NULL){
+                // la chat è stata eliminata da qualche thread durante il processo
+                resp = 1; // chat non esistente
+            } else {
+                // blocchiamo la scrittura sul file 
+                if(startWriteFile(&(((Chat*)(c->content))->sem)) != 0){
+                    fprintf(stderr,"Errore nel bloccare la scrittura sul file\n");
+                    close(socket);
+                    pthread_exit(NULL);
+                }
+                if(initChat(((Chat*)(c->content))->chat_id) != 0){
+                    fprintf(stderr,"Errore nel inizializzare il file chat\n");
+                    close(socket);
+                    pthread_exit(NULL);
+                }
+                if(endWriteFile(&(((Chat*)(c->content))->sem)) != 0){
+                    fprintf(stderr,"Errore nello sbloccare la scrittura sul file\n");
+                    close(socket);
+                    pthread_exit(NULL);
+                }
+                if(startReadFile(&(((Chat*)(c->content))->sem)) != 0){
+                    fprintf(stderr,"Errore nel bloccare lettura sul file\n");
+                    close(socket);
+                    pthread_exit(NULL);
+                }
+            }
+            if(send_encrypted_int(socket,resp,1,server_tx) != 0){
+                fprintf(stderr,"Errore nell'invio della rispsota\n");
+                close(socket);
+                pthread_exit(NULL);
+            }
+            if (resp == 0){
+                // tutto è andato a buon fine possiamo inviare il contenuto della chat al client
+                if(sendChat(((Chat*)(c->content))->chat_id,socket,server_tx) != 0){
+                    fprintf(stderr,"Errore impossibile inviare la chat al cliente\n");
+                    close(socket);
+                    pthread_exit(NULL);
+                }
+                if(endReadFile(&(((Chat*)(c->content))->sem)) != 0){
+                    fprintf(stderr,"Errore nel bloccare lettura sul file\n");
+                    close(socket);
+                    pthread_exit(NULL);
+                }
+                // aspettiamo se si vuole scrivere un messaggio o si vuole eliminare un messaggio
+                // riceviamo operazione da eseguire
+                if(receive_encrypted_int(socket,&op,1,server_rx) != 0){
+                    fprintf(stderr,"Errore impossibile ricevere operazione di autenticazione dal client\n");
+                    close(socket);
+                    pthread_exit(NULL);
+                }
+                printf("operazione scelta: %d\n",op);
+                if(op == 0){
+                    // scrivi nuovo messaggio
+                    // blocchiamo la scrittura sul file 
+                    if(startWriteFile(&(((Chat*)(c->content))->sem)) != 0){
+                        fprintf(stderr,"Errore nel bloccare la scrittura sul file\n");
+                        close(socket);
+                        pthread_exit(NULL);
+                    }
+                    if(writeMessage(((Chat*)(c->content))->chat_id,username,socket,server_tx, server_rx) != 0){
+                        fprintf(stderr,"Errore nel inizializzare il file chat\n");
+                        close(socket);
+                        pthread_exit(NULL);
+                    }
+                    if(endWriteFile(&(((Chat*)(c->content))->sem)) != 0){
+                        fprintf(stderr,"Errore nello sbloccare la scrittura sul file\n");
+                        close(socket);
+                        pthread_exit(NULL);
+                    }
+                } else if(op == 1){
+                    // elimina messaggio
+                }
+            }
         }
     }
 
@@ -420,7 +552,7 @@ int initDataBase(){
         perror("Errore nell'inizializzazione del mutex per il file credentials");
         return 1;
     }
-    if(sem_init(&chatsem.readers,0,0) != 0){
+    if(sem_init(&(usersem.readers),0,0) != 0){
         perror("Errore nell'inizializzazione del semaforo per i readers in file chat");
         return 1;
     }
@@ -433,7 +565,7 @@ int initDataBase(){
         perror("Errore nell'inizializzazione del mutex per il file chat");
         return 1;
     }
-    if(sem_init(&usersem.readers,0,0) != 0){
+    if(sem_init(&(chatsem.readers),0,0) != 0){
         perror("Errore nell'inizializzazione del semaforo per i readers in file credential");
         return 1;
     }
@@ -568,6 +700,16 @@ int compareUtente(const void* a, const char* key) {
 int rmChat(void* chat){
     //cast del puntatore
     Chat* chatptr = (Chat*)chat;
+    // blocchiamo la scrittura sul file chat+
+    if(startWriteFile(&(chatptr->sem)) != 0){
+        fprintf(stderr,"Errore nel blocco della scrittura sulla chat\n");
+        return 1;
+    }
+    //elimininiamo la chat
+    if(remove(chatptr->chat_id) != 0){
+        perror("Errore nella eliminazione del file chat\n");
+        return 1;
+    }
     //liberiamo la memoria allocata per il chat_id
     free(chatptr->chat_id);
     //distruggiamo il semaforo per scrivere un messaggio
@@ -960,7 +1102,7 @@ int addChat(char* chatid, long pos){
 }
 
 // funzione che registra una nuova chat nel file chat e inserisce il nodo nella tabella hash
-int regChat(char* chat_id, int numpart, char** part){
+int regChat(char* chat_id){
     // blocchiamo il file in scrittura
     if(startWriteFile(&chatsem) != 0){
         fprintf(stderr,"Errore semaforo in fase di scrittura in chats\n");
@@ -977,28 +1119,385 @@ int regChat(char* chat_id, int numpart, char** part){
     }
     int pos = ftell(file);
     //scriviamo la nuova tupla
-    if(fprintf(file,"1 %s %d",chat_id,numpart) < 0){
+    if(fprintf(file,"1 %s\n",chat_id) < 0){
         perror("Errore durante la scrittura sul file");
         fclose(file);
         return 1;
     }
-    for(int i=0;i<numpart;i++){
-        fprintf(file," %s",part[i]);
-    }
-    fprintf(file,"\n");
-    fflush(stdout);
-    //aggiungiamo l'utente all'interno della tabella hash
+    //aggiungiamo la chat all'interno della tabella hash
     if(addChat(chat_id,pos) != 0){
         fprintf(stderr,"Errore impossibile aggiungere la chat nella tabella hash\n");
         fclose(file);
         return 1;
     }
     //rilasciamo il mutex della scrittura
-    if(endWriteFile(&usersem) != 0){
-        fprintf(stderr,"Errore semaforo in fase di scrittura in credenziali\n");
+    if(endWriteFile(&chatsem) != 0){
+        fprintf(stderr,"Errore semaforo in fase di scrittura in chat\n");
         fclose(file);
         return 1;
     }
     fclose(file);
     return 0;
+}
+
+// Questa funzione ha lo scopo di trovare una determinata chat all'interno del file chat, se esite crea il nodo all'interno dela tabella hash
+int findChat(char* key){
+    // blocchiamo i mutex necessari
+    if(startReadFile(&chatsem) != 0){
+        fprintf(stderr,"Errore impossibile entrare in lettura nel file credenziali\n");
+        return 1;
+    }
+    //apriamo il file logchat
+    //creiamo il file path
+    char pathfile[strlen(FILECHAT)+5];
+    strcpy(pathfile,FILECHAT);
+    strcat(pathfile,".txt");
+    FILE* file = fopen(pathfile,"r");
+    if(file == NULL){
+        fprintf(stderr,"Errore impossibile aprire in lettura il file chat\n");
+        return 1;
+    }
+    //scandiamo il file riga per riga controllando prima se quest'ultima e' valida e poi il nome della chat
+    char* nomechat = malloc(sizeof(char)*MAX_ID*2);
+    if(nomechat == NULL){
+        fprintf(stderr,"Errore malloc nomechat\n");
+        return 1;
+    }
+    int temp;
+    long pos = ftell(file);
+    while(fscanf(file,"%d %s\n",&temp,nomechat) == 2){
+        printf("scanner di una riga con %s..\n",nomechat);
+        if(temp == 1){
+            // la riga corrente è valida
+            if(strcmp(key,nomechat) == 0){
+                //abbiamo trovato l'utente
+                if(addChat(nomechat,pos) != 0){
+                    fprintf(stderr,"Errore impossibile aggiungere un nuovo nodo chat nella tabella hash\n");
+                    free(nomechat);
+                    fclose(file);
+                    return 1;
+                }
+                // rilasciamo il mutex
+                if(endReadFile(&chatsem) != 0){
+                    fprintf(stderr,"Errore impossibile rilacaire il semaforo read al file chat\n");
+                    free(nomechat);
+                    fclose(file);
+                    return 1;
+                }
+                free(nomechat);
+                fclose(file);
+                return 0;
+            }
+        }
+        pos = ftell(file);
+    }
+    //non è stato trovato l'utente richiesto quindi ritorniamo valore 2
+    if(endReadFile(&chatsem) != 0){
+        fprintf(stderr,"Errore impossibile rilascaire mutex in lettua per il file chat\n");
+        free(nomechat);
+        fclose(file);
+        return 1;
+    }
+    free(nomechat);
+    fclose(file);
+    return 2;
+}
+
+// Questa funzione ha lo scopo di combinare i partecipanti alla chat per restituire il nome
+void createNameChat(char str1[], char str2[], char risultato[]) {
+    // Confronta le stringhe lessicograficamente
+    if (strcmp(str1, str2) < 0) {
+        strcpy(risultato, str1);  // Copia la prima stringa
+        strcat(risultato, "-");    // Aggiungi un trattino
+        strcat(risultato, str2);   // Aggiungi la seconda stringa
+    } else {
+        strcpy(risultato, str2);  // Copia la seconda stringa
+        strcat(risultato, "-");    // Aggiungi un trattino
+        strcat(risultato, str1);   // Aggiungi la prima stringa
+    }
+}
+
+// Funzione per impostare a 0 il bit di validità del messaggio corrispondente al timestamp nel file specificato
+int invalidaMessaggio(char* nomeFile, char* timestamp) {
+    // Aggiungi l'estensione ".txt" al nome del file
+    char nomeFileTxt[strlen(nomeFile)+5];
+    sprintf(nomeFileTxt, "%s.txt", nomeFile);
+
+    // Apri il file in modalità lettura e scrittura
+    FILE* file = fopen(nomeFileTxt, "r+");
+    if (file == NULL) {
+        perror("Errore nell'apertura del file");
+        return 1; // Restituisci 1 se si verifica un errore
+    }
+
+    // Variabili per leggere il file riga per riga e identificare il messaggio corrispondente al timestamp
+    char buffer[MAX_TEXT+1];
+    char tempTimestamp[20];
+    long posizioneInizioMessaggio = -1; // Posizione inizio del messaggio nel file
+
+    // Leggi il file riga per riga
+    while (fgets(buffer, sizeof(buffer), file) != NULL) {
+        // Se trovi una riga che inizia con '1', potrebbe essere l'inizio di un nuovo messaggio
+        if (buffer[0] == '1') {
+            // Leggi il timestamp del messaggio
+            fgets(tempTimestamp, sizeof(tempTimestamp), file);
+
+            // Rimuovi il carattere di nuova riga alla fine del timestamp
+            tempTimestamp[strcspn(tempTimestamp, "\n")] = '\0';
+
+            // Se il timestamp corrisponde a quello specificato
+            if (strcmp(tempTimestamp, timestamp) == 0) {
+                // Memorizza la posizione inizio del messaggio nel file
+                posizioneInizioMessaggio = ftell(file) - strlen(tempTimestamp) - 1; // Aggiungi la lunghezza del timestamp e 1 per la riga '1' all'inizio del messaggio
+                break;
+            }
+        }
+    }
+
+    // Se non hai trovato nessun messaggio con il timestamp specificato
+    if (posizioneInizioMessaggio == -1) {
+        printf("Messaggio con timestamp '%s' non trovato nel file '%s'\n", timestamp, nomeFile);
+        fclose(file);
+        return 1; // Restituisci 1 se non trovi il messaggio
+    }
+
+    // Imposta il bit di validità a 0 (il carattere '0') nella posizione inizio del messaggio nel file
+    fseek(file, posizioneInizioMessaggio, SEEK_SET);
+    fputc('0', file); // Imposta il bit di validità a 0
+
+    // Chiudi il file
+    fclose(file);
+
+    return 0; // Restituisci 0 se tutto è andato bene
+}
+
+// Funzione per ottenere il timestamp corrente come stringa
+char* getCurrentTimestamp() {
+    time_t rawtime;
+    struct tm* timeinfo;
+    char* timestamp = malloc(20 * sizeof(char)); // Allocazione di memoria per il timestamp
+    if (timestamp == NULL) {
+        perror("Errore nell'allocazione di memoria");
+        exit(1);
+    }
+    time(&rawtime);
+    timeinfo = localtime(&rawtime);
+    strftime(timestamp, 20, "%Y-%m-%d %H:%M:%S", timeinfo); // Formato del timestamp: AAAA-MM-GG HH:MM:SS
+    return timestamp;
+}
+
+// Funzione per scrivere un messaggio nel file specificato !!!!!!!!!!!!!! DA modificareeeee
+int writeMessage(char* nomeFile, char* username, int socket, unsigned char* tx_key, unsigned char* rx_key) {
+    char object[MAX_OBJECT];
+    char text[MAX_TEXT];
+    // ricevi ogetto
+    if(receive_encrypted_data(socket,(unsigned char*)object,MAX_OBJECT,rx_key) != 0){
+        fprintf(stderr,"Errore impossibile ricevere l'ogetto del messaggio\n");
+        if(send_encrypted_int(socket,1,1,tx_key) != 0){
+            fprintf(stderr,"Errore nell'invio della conferma al client\n");
+        }
+        return 1;
+    }
+    // ricevi text
+    if(receive_encrypted_data(socket,(unsigned char*)text,MAX_TEXT,rx_key) != 0){
+        fprintf(stderr,"Errore impossibile ricevere il testo del messaggio\n");
+        if(send_encrypted_int(socket,1,1,tx_key) != 0){
+            fprintf(stderr,"Errore nell'invio della conferma al client\n");
+        }
+        return 1;
+    }
+    // Aggiungi l'estensione ".txt" al nome del file
+    char nomeFileTxt[strlen(nomeFile)+5];
+    sprintf(nomeFileTxt, "%s.txt", nomeFile);
+
+    // Apri il file in modalità append
+    FILE* file = fopen(nomeFileTxt, "a");
+    if (file == NULL) {
+        perror("Errore nell'apertura del file");
+        if(send_encrypted_int(socket,1,1,tx_key) != 0){
+            fprintf(stderr,"Errore nell'invio della conferma al client\n");
+        }
+        return 1;
+    }
+
+    // Scrivi il messaggio nel file con il formato richiesto
+    fprintf(file, "1\n"); // Flag per indicare un nuovo messaggio
+    fprintf(file, "%s\n", getCurrentTimestamp()); // Timestamp corrente
+    fprintf(file, "%s\n", username);
+    fprintf(file, "%s\n", object);
+    fprintf(file, "%s\n", text);
+
+    // Chiudi il file
+    fclose(file);
+    if(send_encrypted_int(socket,0,1,tx_key) != 0){
+        fprintf(stderr,"Errore nell'invio della conferma al client\n");
+    }
+    return 0;
+}
+
+// Funzione per leggere e inviare i messaggi da un file
+int sendChat(const char *filename, int socket, const unsigned char *tx_key) {
+    // Aggiungi l'estensione ".txt" al nome del file
+    char nomeFileTxt[strlen(filename)+5];
+    sprintf(nomeFileTxt, "%s.txt", filename);
+    FILE *file = fopen(nomeFileTxt, "r");
+    if (file == NULL) {
+        perror("Errore nell'apertura del file");
+        return 1;
+    }
+    char line[MAX_TEXT+1];
+    char message[MAX_ID+20+MAX_TEXT+MAX_OBJECT+5];
+    while (fgets(line, sizeof(line), file) != NULL) {
+        // Leggi il bit "validate"
+        if (line[0] == '1'){
+            // il messaggio è valido
+            if(send_encrypted_int(socket,1,1,tx_key) != 0){
+                fprintf(stderr,"Errore impossibile inviare bit di controllo al client\n");
+                fclose(file);
+                return 1;
+            }
+            // leggiamo il timestamp
+            fgets(line, sizeof(line), file);
+            // Rimozione del carattere di \n dalla fine della stringa
+            line[strcspn(line, "\n")] = '\0';
+            strcpy(message,line);
+            strcat(message," ");
+            // leggiamo il mittente
+            fgets(line, sizeof(line), file);
+            strcat(message,line);
+            // leggiamo l'ogetto
+            fgets(line, sizeof(line), file);
+            strcat(message,line);
+            // leggiamo il testo
+            fgets(line, sizeof(line), file);
+            strcat(message,line);
+            //inviamo la stringa al client
+            if(send_encrypted_data(socket,(const unsigned char*)message,sizeof(message),tx_key) != 0){
+                fprintf(stderr,"Errore impossibile inviare messaggio al client\n");
+                fclose(file);
+                return 1;
+            }
+        } else {
+            // non considero il messaggio successivo
+            fgets(line,sizeof(line),file);
+            fgets(line,sizeof(line),file);
+            fgets(line,sizeof(line),file);
+            fgets(line,sizeof(line),file);
+        }
+    }
+    // Segnala al client che non ci sono altri messaggi da inviare
+    if(send_encrypted_int(socket,0,1,tx_key) != 0){
+        fprintf(stderr,"Errore impossibile inviare bit di controllo al client\n");
+        fclose(file);
+        return 1;
+    }
+    fclose(file);
+    return 0;
+}
+
+// questa funzione serve per eliminare ogni messaggio invalidato da una chat
+int initChat(char* nomeFile){
+    //creo la stringa vera per aprire il file
+    char pathfile[strlen(nomeFile)+5];
+    strcpy(pathfile,nomeFile);
+    strcat(pathfile,".txt");
+    //apertura file originale
+    FILE *originalfile = fopen(pathfile,"r+"); //apertura del file in RDWR all'inizio
+    if(originalfile == NULL){
+        //il file non esiste e lo crea
+        originalfile = fopen(pathfile,"w");
+        fclose(originalfile);
+        return 0;
+    }
+    //crea il duplicato
+    char pathtemp[strlen(pathfile)+strlen("temp")+1];
+    strcpy(pathtemp,"temp");
+    strcat(pathtemp,pathfile);
+    FILE *dupfile = fopen(pathtemp,"w+"); //apertura in scrittura troncata 
+    if(dupfile == NULL){
+        fprintf(stderr,"Errore: non e' stato possibile aprire il file duplicato \n");
+        fclose(originalfile);
+        return 1;
+    }
+    int temp;
+    while((temp = fgetc(originalfile)) != EOF){
+        fputc(temp,dupfile);
+    }
+    // spostiamo il seek del dupfile all'inizio del file
+    fseek(dupfile, 0, SEEK_SET);
+    //chiudiamo il file orginale per riaprlirlo troncato
+    fclose(originalfile);
+    originalfile = fopen(pathfile,"w+");
+    if(originalfile == NULL){
+        fprintf(stderr,"Errore: non e' stato possibile aprire il file originale \n");
+        fclose(dupfile);
+        return 1;
+    }
+    // riscrive nel file originale solo i messaggi validi
+    char line[MAX_TEXT+1];
+    // leggo la prima riga
+    while (fgets(line,sizeof(line),dupfile) != NULL) {
+        // Verifica il primo carattere
+        if (line[0] == '1') { // Se il primo carattere è '1'
+            // copia la riga nel file originale
+            fprintf(originalfile,"%s",line); // bit validate
+            fgets(line,sizeof(line),dupfile); // timestamp
+            fprintf(originalfile,"%s",line);
+            fgets(line,sizeof(line),dupfile); // mittente
+            fprintf(originalfile,"%s",line);
+            fgets(line,sizeof(line),dupfile); // ogetto
+            fprintf(originalfile,"%s",line);
+            fgets(line,sizeof(line),dupfile); // testo
+            fprintf(originalfile,"%s",line);
+        } else {
+            // il messaggio non è valido e lo saltiamo
+            fgets(line,sizeof(line),dupfile);
+            fgets(line,sizeof(line),dupfile);
+            fgets(line,sizeof(line),dupfile);
+            fgets(line,sizeof(line),dupfile);
+        }
+    }
+    // Chiude entrambi i file
+    fclose(dupfile);
+    fclose(originalfile);
+    //per sicurezza viene eliminato il file temporaneo
+    if(remove(pathtemp) != 0){
+        perror("Errore, impossibile eliminare il file temporaneo");
+        return 1;
+    }
+    return 0;
+}
+
+int eliminaChat(char* nomefile){
+    //blocco la scrittura sul file logchats
+    if(startWriteFile(&chatsem) != 0){
+        fprintf(stderr,"Errore impossibile bloccare la scrittura sul file logChats\n");
+        return 1;
+    }
+    //elimino il nodo chat e il file chat
+    if(rmNode(chatTable,nomefile,compareChat,rmChat) != 0){
+        fprintf(stderr,"Errore nella eliminazione della chat\n");
+        return 1;
+    }
+    // elimino la scritta nel logchat
+    if(invalidateChat() != 0){
+
+    }
+    // rilascio la scritttura sul log chat
+    if(endWriteFile(&chatsem) != 0){
+        fprintf(stderr,"Errore impossibile sbloccare la scrittura sul file logchats\n");
+        return 1;
+    }
+}
+
+int eliminaUtente(){
+    //apri in scrittura il file credenziali
+    if(startWriteFile(&usersem) != 0){
+        
+    }
+    // per ogni utente con bit validate = 1 perndo il nome e lo combiono per creare la possibile chat
+    // vedo se esiste la chat, se esisto uso la funzione elimina chat
+    // elimino il nodo utente dalla hash table
+    // elimino la riga del file credenziali
+    // rilascio la scrittura sul file credenziali
 }
