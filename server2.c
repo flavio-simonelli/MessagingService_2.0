@@ -1567,12 +1567,6 @@ int delChatsforUser(char* user){
     int validate = 0;
     char dest[MAX_ID];
     char chatID[MAX_ID*2+3];
-    // blocco scrittura sul file chats
-    if(startWriteFile(&chatsem) != 0){
-        fprintf(stderr,"Errore impossibile entrare in scrittura nel file chat\n");
-        close(socket);
-        pthread_exit(NULL);
-    }
     while (fscanf(filecred,"%d %s %*s",&validate,dest) == 2 && validate == 1) {
         printf("letto: %s %s\n",dest,user);
         createNameChat(dest,user,chatID);
@@ -1589,15 +1583,9 @@ int delChatsforUser(char* user){
             }
         }
     }
-    // sblocco scrittura sul file chats
-    if(endWriteFile(&chatsem) != 0){
-        fprintf(stderr,"Errore impossibile uscire in scrittura nel file chat\n");
-        close(socket);
-        pthread_exit(NULL);
-    }
     // sblocchiamo la scrittura sul file chat
     if(endWriteFile(&chatsem) != 0){
-        fprintf(stderr,"Errore impossibile sbloccare la scrittura sul file credenziali\n");
+        fprintf(stderr,"Errore impossibile sbloccare la scrittura sul file chat\n");
         return 1;
     }
     return 0;
