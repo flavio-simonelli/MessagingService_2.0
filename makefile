@@ -1,5 +1,5 @@
 CC = gcc
-CFLAGS = -Wall -Wextra -lpthread -lsodium
+CFLAGS = -Wall -Wextra -lpthread -lsodium -g
 
 .PHONY: all
 all: server client

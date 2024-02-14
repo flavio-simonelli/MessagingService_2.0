@@ -485,9 +485,28 @@ void *mainThread(void *clientSocket) {
     //sblocco la memoria riservata alla password in chiaro
     sodium_munlock(password, sizeof(password));
     if(op == 2){
-        //l'utente vuole eliminare l'account !!! DA modificare
+        //l'utente vuole eliminare l'account
+        // blocchiamo la scrittura sul file credenziali
+        if(startWriteFile(&usersem) != 0){
+            fprintf(stderr,"Errore impossibile bloccare la scrittura sul file credenziali\n");
+            close(socket);
+            pthread_exit(NULL);
+        }
+        // eliminiamo il nodo utente all'interno della hash table e dal file credenziali
         if(rmNode(userTable,username,compareUtente,rmUtente) != 0){
             fprintf(stderr,"Errore nell'eliminazione dell'utente\n");
+            close(socket);
+            pthread_exit(NULL);
+        }
+        // eliminiamo tutte le chat che aveva creato questo utente
+        if(delChatsforUser(username) != 0){
+            fprintf(stderr,"Errore nell'eliminazione delle chat dell'utente\n");
+            close(socket);
+            pthread_exit(NULL);
+        }
+        // rilascio della scrittura sul file cred
+        if(endWriteFile(&usersem) != 0){
+            fprintf(stderr,"Errore impossibile sbloccare la scrittura sul file credenziali\n");
             close(socket);
             pthread_exit(NULL);
         }
@@ -538,11 +557,25 @@ void *mainThread(void *clientSocket) {
         createNameChat(username,destinatario,nomechat);
         printf("Nomechat richiesto: %s \n",nomechat);
         // adesso in base all'operazione richiesta dal client {0 = leggi chat} {1 = scrivi messaggio} {2 = elimina messaggio}
+        // in qualunque situazione prima vediamo se la chat esiste se no la creiamo
         resp = -1;
         // cerchiamo il file chat
         if((c = searchNode(chatTable,nomechat,compareChat)) == NULL){
             // file non è stato trovato nella hashtable
-            if((resp = findChat(nomechat)) != 0){
+            // concorrenza in lettura sul file logchats
+            if(startReadFile(&chatsem) != 0){
+                fprintf(stderr,"Errore impossibile entrare in lettura nel file chat\n");
+                close(socket);
+                pthread_exit(NULL);
+            }
+            resp = findChat(nomechat);
+            // concorrenza in lettura
+            if(endReadFile(&chatsem) != 0){
+                fprintf(stderr,"Errore impossibile lasciare lettura nel file chat\n");
+                close(socket);
+                pthread_exit(NULL);
+            }
+            if(resp != 0){
                 if(resp == 2){
                     // la chat non è stata trovata e quindi dobbiamo crearla
                     // creiamo la nuova chat
@@ -553,6 +586,7 @@ void *mainThread(void *clientSocket) {
                         pthread_exit(NULL);
                     }
                     printf("creata\n");
+                    resp = 0;
                 } else {
                     // c'è stato un errore nella funzione findchat
                     resp = 1;
@@ -771,22 +805,10 @@ int compareUtente(const void* a, const char* key) {
     return strcmp(((Utente*)a)->username, key);
 }
 
-//funzione per liberare una struttura chat
+// funzione per liberare una struttura chat e il file che indicava
 int rmChat(void* chat){
     //cast del puntatore
     Chat* chatptr = (Chat*)chat;
-    // blocchiamo la scrittura sul file chat+
-    if(startWriteFile(&(chatptr->sem)) != 0){
-        fprintf(stderr,"Errore nel blocco della scrittura sulla chat\n");
-        return 1;
-    }
-    //elimininiamo la chat
-    if(remove(chatptr->chat_id) != 0){
-        perror("Errore nella eliminazione del file chat\n");
-        return 1;
-    }
-    //liberiamo la memoria allocata per il chat_id
-    free(chatptr->chat_id);
     //distruggiamo il semaforo per scrivere un messaggio
     if(pthread_mutex_destroy(&(chatptr->sem.main)) != 0){
         perror("Errore nella distruzione del mutex per la scrittura di un file in fase di eliminazione");
@@ -796,20 +818,41 @@ int rmChat(void* chat){
         perror("Errore nella distruzione del semaforo per i lettori del file");
         return 1;
     }
+    //elimininiamo la chat
+    char pathchat[strlen(chatptr->chat_id)+6];
+    sprintf(pathchat, "%s.txt", chatptr->chat_id);
+    if(remove(pathchat) != 0){
+        perror("Errore nella eliminazione del file chat");
+        return 1;
+    }
+    //liberiamo la memoria allocata per il chat_id
+    free(chatptr->chat_id);
+    // invalidiamo la riga nel file logchats
+    char pathfile[strlen(FILECHAT)+5];
+    strcpy(pathfile,FILECHAT);
+    strcat(pathfile,".txt");
+    FILE* file = fopen(pathfile,"r+");
+    if(file == NULL){
+        fprintf(stderr,"Errore impossibile aprire il file logchats\n");
+        return 1;
+    }
+    if(fseek(file,chatptr->seek,SEEK_SET) != 0){
+        perror("Errore nel posizionamento del seek");
+        fclose(file);
+        return 1;
+    }
+    fprintf(file,"0");
+    fclose(file);
     //liberiamo la memoria riservata alla struttura dati chat
     free(chatptr);
     return 0;
 }
 
-//funzione per liberare la memoria di una struttura dati Utente e invalidare la riga nel file crednziali
+// funzione per liberare la memoria di una struttura dati Utente e invalidare la riga nel file crednziali (si assume che sia stata già bloccata la scrittutera sul file credenziali)
 int rmUtente(void* user){
     //cast del puntatore
     Utente* userptr = (Utente*)user;
     // invalidiamo la riga nel file credenziali
-    if(startWriteFile(&usersem) != 0){
-        fprintf(stderr,"Errore blocco semaforo in scrittura sul file crednziali\n");
-        return 1;
-    }
     char pathfile[strlen(FILECRED)+5];
     strcpy(pathfile,FILECRED);
     strcat(pathfile,".txt");
@@ -825,17 +868,13 @@ int rmUtente(void* user){
     }
     fprintf(file,"0");
     fclose(file);
-    if(endWriteFile(&usersem) != 0){
-        fprintf(stderr,"Errore nel rilascio del mutex scrittura credenziali\n");
-        return 1;
-    }
     //liberiamo la memoria per riservata per l'username
     free(userptr->username);
     free(userptr);
     return 0;
 }
 
-//funzione per eliminare un nodo da una tabella hash
+// funzione per eliminare un nodo da una tabella hash
 int rmNode(Node** table, char* key, int (*compare)(const void*, const char*), int (*remove)(void *)){
     //calcoliamo l'indice della riga
     unsigned int i = hash_function(key);
@@ -927,6 +966,8 @@ int addNode(Node** table, char* key, void* data){
     // modifichiamo i puntatori
     newNode->next = table[i]->next;
     table[i]->next = newNode;
+
+    printf("provaaaaaa: %s\n", ((Chat*)(table[i]->next->content))->chat_id);
     //rilasciamo il mutex per la testa della lista
     if(pthread_mutex_unlock(&(table[i]->modify)) != 0){
         perror("Errore nell'unlock mutex della testa della lista");
@@ -1220,11 +1261,6 @@ int regChat(char* chat_id){
 
 /* Questa funzione ha lo scopo di trovare una determinata chat all'interno del file chat, se esite crea il nodo all'interno dela tabella hash */
 int findChat(char* key){
-    // concorrenza in lettura
-    if(startReadFile(&chatsem) != 0){
-        fprintf(stderr,"Errore impossibile entrare in lettura nel file credenziali\n");
-        return 1;
-    }
     //apriamo il file logchat
     //creiamo il file path
     char pathfile[strlen(FILECHAT)+5];
@@ -1255,13 +1291,6 @@ int findChat(char* key){
                     fclose(file);
                     return 1;
                 }
-                // rilasciamo il mutex
-                if(endReadFile(&chatsem) != 0){
-                    fprintf(stderr,"Errore impossibile rilacaire il semaforo read al file chat\n");
-                    free(nomechat);
-                    fclose(file);
-                    return 1;
-                }
                 free(nomechat);
                 fclose(file);
                 return 0;
@@ -1270,12 +1299,6 @@ int findChat(char* key){
         pos = ftell(file);
     }
     //non è stata trovata la chat richiesta quindi ritorniamo il valore 2
-    if(endReadFile(&chatsem) != 0){
-        fprintf(stderr,"Errore impossibile rilascaire mutex in lettua per il file chat\n");
-        free(nomechat);
-        fclose(file);
-        return 1;
-    }
     free(nomechat);
     fclose(file);
     return 2;
@@ -1518,6 +1541,63 @@ int initChat(char* nomeFile){
     //per sicurezza viene eliminato il file temporaneo
     if(remove(pathtemp) != 0){
         perror("Errore, impossibile eliminare il file temporaneo");
+        return 1;
+    }
+    return 0;
+}
+
+/* Funzione che serve ad eliminare ogni chat esistente di un determinato utente */
+int delChatsforUser(char* user){
+    // blocchiamo in scrittura il file chat
+    if(startWriteFile(&chatsem) != 0){
+        fprintf(stderr,"Errore impossibile bloccare la scrittura sul file credenziali\n");
+        return 1;
+    }
+    printf("e qui ci siamo\n");
+    // apriamo il file credenziali
+    char pathfile[strlen(FILECRED)+5];
+    strcpy(pathfile,FILECRED);
+    strcat(pathfile,".txt");
+    FILE* filecred = fopen(pathfile,"r+");
+    if(filecred == NULL){
+        fprintf(stderr,"Errore impossibile aprire il file in modlaità append\n");
+        return 1;
+    }
+    printf("qui pure\n");
+    int validate = 0;
+    char dest[MAX_ID];
+    char chatID[MAX_ID*2+3];
+    // blocco scrittura sul file chats
+    if(startWriteFile(&chatsem) != 0){
+        fprintf(stderr,"Errore impossibile entrare in scrittura nel file chat\n");
+        close(socket);
+        pthread_exit(NULL);
+    }
+    while (fscanf(filecred,"%d %s %*s",&validate,dest) == 2 && validate == 1) {
+        printf("letto: %s %s\n",dest,user);
+        createNameChat(dest,user,chatID);
+        printf("possibile chat che biosogna eliminare: %s\n",chatID);
+        fflush(stdout);
+        // cerchiamo il file chat
+        if(findChat(chatID) == 0){
+            // la chat esisteva e quindi va eliminata
+            printf("qui ci siamo\n");
+            fflush(stdout);
+            if(rmNode(chatTable,chatID,compareChat,rmChat) != 0){
+                fprintf(stderr,"Errore impossibile eliminare la chat\n");
+                return 1;
+            }
+        }
+    }
+    // sblocco scrittura sul file chats
+    if(endWriteFile(&chatsem) != 0){
+        fprintf(stderr,"Errore impossibile uscire in scrittura nel file chat\n");
+        close(socket);
+        pthread_exit(NULL);
+    }
+    // sblocchiamo la scrittura sul file chat
+    if(endWriteFile(&chatsem) != 0){
+        fprintf(stderr,"Errore impossibile sbloccare la scrittura sul file credenziali\n");
         return 1;
     }
     return 0;

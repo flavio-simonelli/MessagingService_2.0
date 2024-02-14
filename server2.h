@@ -119,3 +119,5 @@ char* getCurrentTimestamp();
 int writeMessage(char* nomeFile, char* username, char* object, char* text);
 int sendChat(const char *filename, int socket, const unsigned char *tx_key);
 int initChat(char* nomeFile);
+/* Funzione che serve ad eliminare ogni chat esistente di un determinato utente */
+int delChatsforUser(char* user);
