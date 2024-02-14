@@ -492,15 +492,17 @@ void *mainThread(void *clientSocket) {
             close(socket);
             pthread_exit(NULL);
         }
-        // eliminiamo il nodo utente all'interno della hash table e dal file credenziali
-        if(rmNode(userTable,username,compareUtente,rmUtente) != 0){
-            fprintf(stderr,"Errore nell'eliminazione dell'utente\n");
-            close(socket);
-            pthread_exit(NULL);
-        }
         // eliminiamo tutte le chat che aveva creato questo utente
         if(delChatsforUser(username) != 0){
             fprintf(stderr,"Errore nell'eliminazione delle chat dell'utente\n");
+            endWriteFile(&usersem);
+            close(socket);
+            pthread_exit(NULL);
+        }
+        // eliminiamo il nodo utente all'interno della hash table e dal file credenziali
+        if(rmNode(userTable,username,compareUtente,rmUtente) != 0){
+            fprintf(stderr,"Errore nell'eliminazione dell'utente\n");
+            endWriteFile(&usersem);
             close(socket);
             pthread_exit(NULL);
         }
@@ -646,19 +648,25 @@ void *mainThread(void *clientSocket) {
         if(op == 0){
             // operazione richiesta leggi messaggi
             // blocchiamo in lettura il file
-            if(startReadFile(&((Chat*)(c->content))->sem) != 0){
-                fprintf(stderr,"Errore nel blocco in lettura del file chat\n");
-                resp = 1;
+            if(resp == 0){
+                if(startReadFile(&((Chat*)(c->content))->sem) != 0){
+                    fprintf(stderr,"Errore nel blocco in lettura del file chat\n");
+                    resp = 1;
+                }
             }
             // inviamo risposta al client
             if(send_encrypted_int(socket,resp,1,server_tx) != 0){
                 fprintf(stderr,"Errore nell'invio della rispsota\n");
+                if(resp == 0){
+                    endReadFile(&(((Chat*)(c->content))->sem));
+                }
                 close(socket);
                 pthread_exit(NULL);
             }
             if(resp == 0){
                 if(sendChat(((Chat*)(c->content))->chat_id,socket,server_tx) != 0){
                     fprintf(stderr,"Errore impossibile inviare la chat al cliente\n");
+                    endReadFile(&(((Chat*)(c->content))->sem));
                     close(socket);
                     pthread_exit(NULL);
                 }
@@ -672,13 +680,18 @@ void *mainThread(void *clientSocket) {
         } else if (op == 1){
             // operazione richiesya scrivi messaggio
             // blocchiamo in scrittura il file
-            if(startWriteFile(&((Chat*)(c->content))->sem) != 0){
-                fprintf(stderr,"Errore nel blocco della scrittura sul file chat\n");
-                resp = 1;
+            if(op == 0){
+                if(startWriteFile(&((Chat*)(c->content))->sem) != 0){
+                    fprintf(stderr,"Errore nel blocco della scrittura sul file chat\n");
+                    resp = 1;
+                }
             }
             // inviamo risposta al client
             if(send_encrypted_int(socket,resp,1,server_tx) != 0){
                 fprintf(stderr,"Errore nell'invio della rispsota\n");
+                if(resp == 0){
+                    endWriteFile(&((Chat*)(c->content))->sem);
+                }
                 close(socket);
                 pthread_exit(NULL);
             }
@@ -686,12 +699,14 @@ void *mainThread(void *clientSocket) {
                 // ricezione dell'ogetto
                 if(receive_encrypted_data(socket,(unsigned char*)object,MAX_OBJECT,server_rx) != 0){
                     fprintf(stderr,"Errore impossibile ricevere ogetto del messaggio\n");
+                    endWriteFile(&((Chat*)(c->content))->sem);
                     close(socket);
                     pthread_exit(NULL);
                 }
                 // ricezione del testo
                 if(receive_encrypted_data(socket,(unsigned char*)text,MAX_TEXT,server_rx) != 0){
                     fprintf(stderr,"Errore impossibile ricevere testo del messaggio\n");
+                    endWriteFile(&((Chat*)(c->content))->sem);
                     close(socket);
                     pthread_exit(NULL);
                 }
@@ -718,13 +733,18 @@ void *mainThread(void *clientSocket) {
         } else if (op == 2){
             // operazione richiesta elimina messaggio
             // blocchiamo in scrittura il file
-            if(startWriteFile(&((Chat*)(c->content))->sem) != 0){
-                fprintf(stderr,"Errore nel blocco della scrittura sul file chat\n");
-                resp = 1;
+            if(resp == 0){
+                if(startWriteFile(&((Chat*)(c->content))->sem) != 0){
+                    fprintf(stderr,"Errore nel blocco della scrittura sul file chat\n");
+                    resp = 1;
+                }
             }
             // inviamo risposta al client
             if(send_encrypted_int(socket,resp,1,server_tx) != 0){
                 fprintf(stderr,"Errore nell'invio della rispsota\n");
+                if(resp == 0){
+                    endWriteFile(&((Chat*)(c->content))->sem);
+                }
                 close(socket);
                 pthread_exit(NULL);
             }
@@ -732,12 +752,14 @@ void *mainThread(void *clientSocket) {
                 // inviamo i messaggi al client
                 if(sendChat(((Chat*)(c->content))->chat_id,socket,server_tx) != 0){
                     fprintf(stderr,"Errore impossibile inviare la chat al cliente\n");
+                    endWriteFile(&((Chat*)(c->content))->sem);
                     close(socket);
                     pthread_exit(NULL);
                 }
                 // richiediamo il timestamp da eliminare
                 if(receive_encrypted_data(socket,(unsigned char*)timestamp,20,server_rx) != 0){
                     fprintf(stderr,"Errore impossibile ricevere il timestamp da eliminare\n");
+                    endWriteFile(&((Chat*)(c->content))->sem);
                     close(socket);
                     pthread_exit(NULL);
                 }
@@ -1272,7 +1294,7 @@ int findChat(char* key){
         return 1;
     }
     //scandiamo il file riga per riga controllando prima se quest'ultima e' valida e poi il nome della chat
-    char* nomechat = malloc(sizeof(char)*MAX_ID*2); // buffer che contiene il nome della chat
+    char* nomechat = malloc(sizeof(char)*MAX_ID*2+2); // buffer che contiene il nome della chat
     if(nomechat == NULL){
         fprintf(stderr,"Errore malloc nomechat\n");
         return 1;
@@ -1561,6 +1583,7 @@ int delChatsforUser(char* user){
     FILE* filecred = fopen(pathfile,"r+");
     if(filecred == NULL){
         fprintf(stderr,"Errore impossibile aprire il file in modlaità append\n");
+        endWriteFile(&chatsem);
         return 1;
     }
     int validate = 0;
@@ -1568,19 +1591,22 @@ int delChatsforUser(char* user){
     char chatID[MAX_ID*2+3];
     printf("parte incriminata 2\n");
     while (fscanf(filecred,"%d %s %*s",&validate,dest) == 2) {
-        printf("letto: %s %s\n",dest,user);
-        fflush(stdout);
-        createNameChat(dest,user,chatID);
-        printf("possibile chat che biosogna eliminare: %s\n",chatID);
-        fflush(stdout);
-        // cerchiamo il file chat
-        if(findChat(chatID) == 0){
-            // la chat esisteva e quindi va eliminata
-            printf("parte incriminata 3\n");
+        if( validate == 1){
+            printf("letto: %s %s\n",dest,user);
             fflush(stdout);
-            if(rmNode(chatTable,chatID,compareChat,rmChat) != 0){
-                fprintf(stderr,"Errore impossibile eliminare la chat\n");
-                return 1;
+            createNameChat(dest,user,chatID);
+            printf("possibile chat che biosogna eliminare: %s\n",chatID);
+            fflush(stdout);
+            // cerchiamo il file chat
+            if(findChat(chatID) == 0){
+                // la chat esisteva e quindi va eliminata
+                printf("parte incriminata 3\n");
+                fflush(stdout);
+                if(rmNode(chatTable,chatID,compareChat,rmChat) != 0){
+                    fprintf(stderr,"Errore impossibile eliminare la chat\n");
+                    endWriteFile(&chatsem);
+                    return 1;
+                }
             }
         }
     }
