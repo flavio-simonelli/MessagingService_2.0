@@ -108,8 +108,8 @@ int main(int argc, char** argv){
     }
 
     // fase principale
-    char object[MAX_OBJECT];
-    char text[MAX_TEXT];
+    char* object;
+    char* text;
     char timestamp[20];
     while(1){
         option[0] = "Leggi chat";
@@ -130,7 +130,7 @@ int main(int argc, char** argv){
         //invio destinatario
         resp = -1;
         while( resp != 0){
-                // allocazione di memoria per l'userrname
+            // allocazione di memoria per l'userrname
             if((username = (char*)malloc(MAX_ID * sizeof(char))) == NULL){
                 perror("error to malloc for username");
                 exit(EXIT_FAILURE);
@@ -169,16 +169,28 @@ int main(int argc, char** argv){
                 printChat();
             } else if( op == 1){
                 // scriviamo il messaggio
+                // allocazione di memoria per l'userrname
+                if((object = (char*)malloc(MAX_OBJECT * sizeof(char))) == NULL){
+                    perror("error to malloc for object");
+                    exit(EXIT_FAILURE);
+                }
                 // richiediamo ogetto
                 if(stringrequire(object,MAX_OBJECT,"oggetto",4)!=0){
                     printf("errore nella richiesta dell'oggetto \n");
                     close(sock);
                     exit(EXIT_FAILURE);
                 }
+                printf("%s\n",object);
                 // inviamo ogetto
                 if(send_encrypted_data(sock,(const unsigned char*)object, MAX_OBJECT, client_tx) != 0){
                     printf("errore invio object \n");
                     close(sock);
+                    exit(EXIT_FAILURE);
+                }
+                free(object);
+                // allocazione di memoria per l'userrname
+                if((text = (char*)malloc(MAX_TEXT * sizeof(char))) == NULL){
+                    perror("error to malloc for text");
                     exit(EXIT_FAILURE);
                 }
                 // richiediamo testo
@@ -193,6 +205,7 @@ int main(int argc, char** argv){
                     close(sock);
                     exit(EXIT_FAILURE);
                 }
+                free(text);
                 // aspettiamo risposta dal server
                 if(receive_encrypted_int(sock,&resp,1,client_rx) != 0){
                     fprintf(stderr,"Errore impossibile ricevere la risposta dal server\n");
