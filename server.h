@@ -13,98 +13,111 @@
 #include <time.h>
 #include <dirent.h>
 #include <errno.h>
+#include <semaphore.h>
 
 // file inclusi
 #include "transfertsocket.h"
 
-// VARIABILI D'AMBIENTE
-#define CREDPATH "credentials.txt"
-#define BACKLOG 10
-#define TABLE_SIZE 1000 //numero di esempio
-#define MAX_ID 20
-#define MAX_PSWD 20
-#define ENC_PSWD crypto_pwhash_STRBYTES
-#define MAX_OBJECT 20
+// campi massimi
+#define MAX_ID 10
+#define MAX_CHATID 10
 #define MAX_TEXT 200
-#define CHAT_FOLDER "Chats"
+#define MAX_OBJECT 20
+#define MAX_PSWD 20
+#define MAX_ENCPSWD crypto_pwhash_STRBYTES
+#define MAX_PART 10 //numero massimo di partecipanti
 
+#define BACKLOG 10
 
-#define fflush(stdin) while(getchar() != '\n')
+// nomi file
+#define FILECHAT "logChats"
+#define FILECRED "logCred"
 
+// massimo numero di righe delle tabelle
+#define MAX_TABLE 100
 
-
-// STRUTTURE DATI UTILIZZATE 
-typedef struct Utente{
-    char username[MAX_ID];
-    long pos;
-    struct Utente* next;
-} Utente;
-
-typedef struct {
-    Utente* head;
-    pthread_mutex_t mutex;
-} HashTable;
-
-typedef struct {
-    char destinatario[MAX_ID];
-    char ogetto[MAX_OBJECT];
-    char text[MAX_TEXT];
-} Messaggio;
-
-typedef struct FileChat{
-    char chat[5+1+MAX_ID+1+MAX_ID+4+1];
-    pthread_mutex_t write;
-    struct FileChat* next;
-} FileChat;
+struct semFile{
+    pthread_mutex_t main;
+    sem_t readers;
+};
 
 typedef struct{
-    FileChat* head;
-    pthread_mutex_t add;
-} Listachats;
+    long seek;
+    char* username;
+} Utente;
+
+typedef struct{
+    long seek;
+    char* chat_id;
+    struct semFile sem;
+} Chat;
 
 
+typedef struct Node{
+    void* content;
+    pthread_mutex_t modify;
+    struct Node* next;
+} Node;
 
 
-// FUNZIONI INIZIALIZZAZIONE PROCESSO PRINCIPALE
-
-int initSocket (char *ipAddress, char *portstring);
-
-int portValidate(const char *string);
-
-int ipValidate(const char *ipAddress);
-
-int initCrypto();
-
-int initCredential();
-
+// Funzioni di inizializzazione
 int initSignal();
+int initSocket(char* ipAddress, char* portstring);
+int initCrypto();
+int initDataBase();
+int initFile(char* nomeFile);
 
+// Funzioni di validazione
+int portValidate(const char* string);
+int ipValidate(const char* ipAddress);
+
+// Funzioni di gestione dei segnali
 void signalclose();
-
-HashTable* initializeHashTable();
-
 void closeServer();
 
-
-
-// FUNZIONI DEI THREADS
-
+// Funzioni per lo scambio di chiavi crittografiche
 int key_exchange(unsigned char* server_pk, unsigned char* server_sk, unsigned char* server_rx, unsigned char* server_tx, unsigned char* client_pk, int socket);
-//parte struttura dati utenti (hashtable)
-unsigned int hashFunction(const char* username);
 
-int insertIntoHashTable(HashTable* table, Utente data);
+// Funzioni dei thread
+void* mainThread(void* clientSocket);
 
-Utente* searchInHashTable(HashTable* table, const char* username);
+// Funzioni per la gestione delle liste
+unsigned int hash_function(char* key);
+int compareChat(const void* a, const char* key);
+int compareUtente(const void* a, const char* key);
+int rmChat(void* chat);
+int rmUtente(void* user);
+int rmNode(Node** table, char* key, int (*compare)(const void*, const char*), int (*remove)(void *));
+Node* searchNode(Node** table, char* key, int (*compare)(const void*, const char*));
+int addNode(Node** table, char* key, void* data);
 
-int removeFromHashTable(HashTable* table, const char* username);
-//parte autenticazione
-int authentication_client(char* user, int op, unsigned char* server_rx,unsigned char* server_tx,int socket);
+// Funzioni per la gestione dei file e dei semafori
+int startReadFile(struct semFile* sem);
+int endReadFile(struct semFile* sem);
+int startWriteFile(struct semFile* sem);
+int endWriteFile(struct semFile* sem);
 
-char* PswdSaved(Utente user);
+// Funzione che aggiunge un nuovo utente nella sua tabella hash
+int addUtente(char *username, long pos);
 
-int regUser(Utente user, char* hashpassword);
+// Funzione che scannerizza il file delle credenziali alla ricerca dell'utente
+int findUtente(char *key);
 
-int deleteUser(Utente user);
+// Funzione che registra un nuovo utente
+int regUtente(char *username, char *password);
 
-void *mainThread(void *clientSocket);
+// funzione che preleva la password dal file credenziali
+int findPswd(long pos, char* password);
+
+void createNameChat(char str1[], char str2[], char risultato[]);
+
+int findChat(char* key);
+int regChat(char* chat_id);
+
+int invalidaMessaggio(char* nomeFile, char* timestamp);
+char* getCurrentTimestamp();
+int writeMessage(char* nomeFile, char* username, char* object, char* text);
+int sendChat(const char *filename, int socket, const unsigned char *tx_key);
+int initChat(char* nomeFile);
+/* Funzione che serve ad eliminare ogni chat esistente di un determinato utente */
+int delChatsforUser(char* user);
