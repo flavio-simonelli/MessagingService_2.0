@@ -34,3 +34,6 @@ int initSocket(char* ipAddress, char* portstring); // questa fuznione è da camb
 int initCrypto();
 
 int authentication(char* user);
+
+/* Funzione per stampare una chat */
+int printChat();

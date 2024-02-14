@@ -116,6 +116,6 @@ int regChat(char* chat_id);
 
 int invalidaMessaggio(char* nomeFile, char* timestamp);
 char* getCurrentTimestamp();
-int writeMessage(char* nomeFile, char* username, int socket, unsigned char* tx_key, unsigned char* rx_key);
+int writeMessage(char* nomeFile, char* username, char* object, char* text);
 int sendChat(const char *filename, int socket, const unsigned char *tx_key);
 int initChat(char* nomeFile);

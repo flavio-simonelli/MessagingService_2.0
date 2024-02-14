@@ -152,3 +152,40 @@ int intrequire(int *num, int max, char *oggetto) {
     }
     return 0;
 }
+
+// Funzione per ottenere un timestamp dall'utente
+int getTimestamp(char *timestamp) {
+    bool valid = false;
+    char temp[21]; // Lunghezza massima del timestamp più uno per il terminatore di stringa
+
+    do {
+        printf("Inserisci un timestamp nel formato 'YYYY-MM-DD HH:MM:SS': ");
+        if(fgets(temp, sizeof(temp), stdin) == NULL) {
+            perror("Errore durante la lettura dell'input");
+            return 1;
+        }
+
+        // Se la stringa è lunga 20 caratteri e l'ultimo carattere non è '\n', svuota lo stdin
+        if (strlen(temp) == 20 && temp[19] != '\n') {
+            fflush(stdin);
+        }
+
+        // Rimuove il carattere di nuova riga
+        temp[strcspn(temp, "\n")] = '\0';
+
+        // Controllo se la stringa inserita è nel formato corretto
+        if (strlen(temp) == 19 &&
+            temp[4] == '-' && temp[7] == '-' &&
+            temp[10] == ' ' && temp[13] == ':' &&
+            temp[16] == ':' && temp[19] == '\0') {
+            valid = true;
+        } else {
+            printf("Formato non valido. Riprova.\n");
+        }
+    } while (!valid);
+
+    // Copia la stringa nel timestamp passato come parametro
+    strcpy(timestamp, temp);
+
+    return 0;
+}
