@@ -97,27 +97,19 @@ int endReadFile(struct semFile* sem);
 int startWriteFile(struct semFile* sem);
 int endWriteFile(struct semFile* sem);
 
-// Funzione che aggiunge un nuovo utente nella sua tabella hash
+// funzioni per la gestione degli utenti
 int addUtente(char *username, long pos);
-
-// Funzione che scannerizza il file delle credenziali alla ricerca dell'utente
 int findUtente(char *key);
-
-// Funzione che registra un nuovo utente
 int regUtente(char *username, char *password);
-
-// funzione che preleva la password dal file credenziali
 int findPswd(long pos, char* password);
 
+// Funzioni per la gestione delle chat
 void createNameChat(char str1[], char str2[], char risultato[]);
-
 int findChat(char* key);
 int regChat(char* chat_id);
-
 int invalidaMessaggio(char* nomeFile, char* timestamp);
 char* getCurrentTimestamp();
 int writeMessage(char* nomeFile, char* username, char* object, char* text);
 int sendChat(const char *filename, int socket, const unsigned char *tx_key);
 int initChat(char* nomeFile);
-/* Funzione che serve ad eliminare ogni chat esistente di un determinato utente */
 int delChatsforUser(char* user);

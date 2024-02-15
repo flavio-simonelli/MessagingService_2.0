@@ -18,6 +18,8 @@ int main(int argc, char** argv){
         fprintf(stderr,"Errore: non è stata possibile inizializzare la connessione con il server\n");
         exit(EXIT_FAILURE);
     }
+    // Impostazione del gestore del segnale SIGINT
+    signal(SIGINT, sigint_handler);
     // inizializzazione della libreria di crittografia
     if(initCrypto() != 0){
         fprintf(stderr,"Errore: impossibile inizializzare la libreria di crittografia \n");
@@ -52,7 +54,6 @@ int main(int argc, char** argv){
             close(sock);
             exit(EXIT_FAILURE);
         }
-        printf("%s \n",username);
         if(send_encrypted_data(sock,(const unsigned char*)username, MAX_ID, client_tx) != 0){
             printf("errore invio userrname \n");
             close(sock);
@@ -64,7 +65,11 @@ int main(int argc, char** argv){
             close(sock);
             exit(EXIT_FAILURE);
         }
-        printf("risposta del server: %d\n",resp);
+        if(resp == 2){
+            printf("Username esistente!\n");
+        } else if(resp == 1){
+            printf("Username insesistente!\n");
+        }
         free(username);
     }
     printf("Username accettato!\n");
@@ -141,7 +146,6 @@ int main(int argc, char** argv){
                 close(sock);
                 exit(EXIT_FAILURE);
             }
-            printf("%s \n",username);
             if(send_encrypted_data(sock,(const unsigned char*)username, MAX_ID, client_tx) != 0){
                 printf("errore invio destinatario \n");
                 close(sock);
@@ -153,7 +157,11 @@ int main(int argc, char** argv){
                 close(sock);
                 exit(EXIT_FAILURE);
             }
-            printf("risposta del server: %d\n",resp);
+            if( resp == 1){
+                printf("Destinatario inesistente!\n");
+            } else {
+                printf("destinatario trovato!\n");
+            }
             free(username);
         }
         resp = -1;
@@ -180,7 +188,6 @@ int main(int argc, char** argv){
                     close(sock);
                     exit(EXIT_FAILURE);
                 }
-                printf("%s\n",object);
                 // inviamo ogetto
                 if(send_encrypted_data(sock,(const unsigned char*)object, MAX_OBJECT, client_tx) != 0){
                     printf("errore invio object \n");
@@ -247,6 +254,13 @@ int main(int argc, char** argv){
         }
     }
     return 0;
+}
+
+// Funzione per gestire il segnale SIGINT (Ctrl+C)
+void sigint_handler() {
+    close(sock);
+    printf("\nArrivederci!\n");
+    exit(EXIT_SUCCESS);
 }
 
 int authentication(char* user){ // ricordati che nel server il mutex deve essere preso prima del controllo nella liosta degli utenti perchè così evito che nello stesso momento si registrano con lo stesso nome

@@ -55,7 +55,6 @@ int main(int argc, char **argv){
             closeServer();
             exit(EXIT_FAILURE);
         }
-        printf("connesso un nuovo client! \n");
     }
     closeServer();
     return 0;
@@ -368,7 +367,6 @@ void *mainThread(void *clientSocket) {
         close(socket);
         pthread_exit(NULL);
     }
-    printf("operazione selezionata: %d \n",op);
     // ricezione dell'username 
     int resp = 1; // intero che corrisponde alla risposta da inviare al client
     Utente* user = NULL;
@@ -379,7 +377,6 @@ void *mainThread(void *clientSocket) {
             close(socket);
             pthread_exit(NULL);
         }
-        printf("username ricevuto: %s\n",username);
         if(op != 1){
             // fase di accesso o eliminazione 
             // cerchiamo un nodo con lo stesso username nella tabella hash
@@ -530,7 +527,6 @@ void *mainThread(void *clientSocket) {
             close(socket);
             pthread_exit(NULL);
         }
-        printf("operazione scelta: %d\n",op);
         // richiesta destinatario
         resp = 1;
         while(resp != 0){
@@ -540,7 +536,6 @@ void *mainThread(void *clientSocket) {
                 close(socket);
                 pthread_exit(NULL);
             }
-            printf("username ricevuto: %s\n",destinatario);
             // cerchiamo se esiste l'utente destinatario scritto dal client
             if(searchNode(userTable,destinatario,compareUtente) != NULL){
                 // utente trovato nella tabella hash
@@ -557,7 +552,6 @@ void *mainThread(void *clientSocket) {
         }
         // dopo aver selezionato il destinatario corretto creiamo il nome univoco della chat di riferimento
         createNameChat(username,destinatario,nomechat);
-        printf("Nomechat richiesto: %s \n",nomechat);
         // adesso in base all'operazione richiesta dal client {0 = leggi chat} {1 = scrivi messaggio} {2 = elimina messaggio}
         // in qualunque situazione prima vediamo se la chat esiste se no la creiamo
         resp = -1;
@@ -581,13 +575,11 @@ void *mainThread(void *clientSocket) {
                 if(resp == 2){
                     // la chat non è stata trovata e quindi dobbiamo crearla
                     // creiamo la nuova chat
-                    printf("iniziamo creazione\n");
                     if(regChat(nomechat) != 0){
                         fprintf(stderr,"Errore nell'invio della rispsota\n");
                         close(socket);
                         pthread_exit(NULL);
                     }
-                    printf("creata\n");
                     resp = 0;
                 } else {
                     // c'è stato un errore nella funzione findchat
@@ -989,7 +981,6 @@ int addNode(Node** table, char* key, void* data){
     newNode->next = table[i]->next;
     table[i]->next = newNode;
 
-    printf("provaaaaaa: %s\n", ((Chat*)(table[i]->next->content))->chat_id);
     //rilasciamo il mutex per la testa della lista
     if(pthread_mutex_unlock(&(table[i]->modify)) != 0){
         perror("Errore nell'unlock mutex della testa della lista");
@@ -1098,7 +1089,6 @@ int findUtente(char* key){
     int temp;
     long pos = ftell(file);
     while(fscanf(file,"%d %s %*s\n",&temp,username) == 2){
-        printf("scanner di una riga con %s..\n",username);
         if(temp == 1){
             // la riga corrente è valida
             if(strcmp(key,username) == 0){
@@ -1302,7 +1292,6 @@ int findChat(char* key){
     int temp; // buffer che contiene il bit validate
     long pos = ftell(file); // posizione della riga nel file
     while(fscanf(file,"%d %s\n",&temp,nomechat) == 2){
-        printf("scanner di una riga con %s..\n",nomechat);
         if(temp == 1){
             // la riga corrente è valida
             if(strcmp(key,nomechat) == 0){
@@ -1368,7 +1357,6 @@ int invalidaMessaggio(char* nomeFile, char* timestamp) {
             // Rimuovi il carattere di nuova riga alla fine del timestamp
             tempTimestamp[strcspn(tempTimestamp, "\n")] = '\0';
 
-            printf("%s\n",tempTimestamp);
             // Se il timestamp corrisponde a quello specificato
             if (strcmp(tempTimestamp, timestamp) == 0) {
                 // Memorizza la posizione inizio del messaggio nel file
@@ -1380,7 +1368,6 @@ int invalidaMessaggio(char* nomeFile, char* timestamp) {
 
     // Se non hai trovato nessun messaggio con il timestamp specificato
     if (posizioneInizioMessaggio == -1) {
-        printf("Messaggio con timestamp '%s' non trovato nel file '%s'\n", timestamp, nomeFile);
         fclose(file);
         return 1; // Restituisci 1 se non trovi il messaggio
     }
@@ -1575,7 +1562,6 @@ int delChatsforUser(char* user){
         fprintf(stderr,"Errore impossibile bloccare la scrittura sul file credenziali\n");
         return 1;
     }
-    printf("parte incriminata 1\n");
     // apriamo il file credenziali
     char pathfile[strlen(FILECRED)+5];
     strcpy(pathfile,FILECRED);
@@ -1589,19 +1575,12 @@ int delChatsforUser(char* user){
     int validate = 0;
     char dest[MAX_ID];
     char chatID[MAX_ID*2+3];
-    printf("parte incriminata 2\n");
     while (fscanf(filecred,"%d %s %*s",&validate,dest) == 2) {
         if( validate == 1){
-            printf("letto: %s %s\n",dest,user);
-            fflush(stdout);
             createNameChat(dest,user,chatID);
-            printf("possibile chat che biosogna eliminare: %s\n",chatID);
-            fflush(stdout);
             // cerchiamo il file chat
             if(findChat(chatID) == 0){
                 // la chat esisteva e quindi va eliminata
-                printf("parte incriminata 3\n");
-                fflush(stdout);
                 if(rmNode(chatTable,chatID,compareChat,rmChat) != 0){
                     fprintf(stderr,"Errore impossibile eliminare la chat\n");
                     endWriteFile(&chatsem);

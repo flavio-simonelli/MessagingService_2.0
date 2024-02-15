@@ -20,20 +20,18 @@
 #define MAX_OBJECT 20
 #define MAX_PSWD 20
 #define MAX_ENCPSWD crypto_pwhash_STRBYTES
-#define MAX_PART 10 //numero massimo di partecipanti
 
-
-// il concetto che ogni coppia di utenti ha il suo file, quando un utente vuole vedere la chat si apre questa dalla fine e si legge tipo 200 caratteri poi il client puo chiedere di anadare su giu o uscire dalla chat o scrivere un messsaggio o eliminare un messaggio
 
 int portValidate(const char *string);
 
 int ipValidate(const char *ipAddress) ;
 
-int initSocket(char* ipAddress, char* portstring); // questa fuznione è da cambiare per windows
+int initSocket(char* ipAddress, char* portstring);
 
 int initCrypto();
 
 int authentication(char* user);
 
-/* Funzione per stampare una chat */
 int printChat();
+
+void sigint_handler();
